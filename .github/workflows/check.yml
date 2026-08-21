@@ -1,10 +1,14 @@
-name: Check September appointments
+name: September appointment monitor
 
 on:
   workflow_dispatch:
 
+  schedule:
+    # Every 5 minutes
+    - cron: "*/5 * * * *"
+
 jobs:
-  check:
+  check-appointments:
     runs-on: ubuntu-latest
 
     steps:
@@ -15,15 +19,136 @@ jobs:
 
       - name: Install Playwright
         run: |
+          npm init -y
           npm install playwright
           npx playwright install --with-deps chromium
 
       - name: Check September appointments
+        env:
+          ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }}
         run: |
           cat > test.js <<'EOF'
           const { chromium } = require('playwright');
 
-          (async () => {
+          const START_URL =
+            'https://www.ingolstadt.de/tevisweb/select2?md=5';
+
+          const TARGET_MONTH = 9;
+
+          async function sendAlert(message) {
+            if (!process.env.ALERT_WEBHOOK) {
+              console.log('\nNo ALERT_WEBHOOK secret configured.');
+              console.log('ALERT MESSAGE:');
+              console.log(message);
+              return;
+            }
+
+            try {
+              const response = await fetch(
+                process.env.ALERT_WEBHOOK,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({
+                    content: message
+                  })
+                }
+              );
+
+              console.log(
+                'Alert response:',
+                response.status
+              );
+
+              if (!response.ok) {
+                console.log(
+                  await response.text()
+                );
+              }
+            } catch (error) {
+              console.error(
+                'Could not send alert:',
+                error
+              );
+            }
+          }
+
+          async function closeTevisDialog(page) {
+            const dialog = page.locator('#TevisDialog');
+
+            if (
+              !(await dialog.isVisible().catch(() => false))
+            ) {
+              return;
+            }
+
+            console.log('TEVIS information popup found.');
+
+            // Try the actual OK controls first.
+            const okInput = dialog.locator(
+              'input[type="button"], input[type="submit"]'
+            );
+
+            const okCount = await okInput.count();
+
+            for (let i = 0; i < okCount; i++) {
+              const input = okInput.nth(i);
+
+              const value =
+                await input.getAttribute('value');
+
+              if (
+                value &&
+                value.trim().toUpperCase() === 'OK' &&
+                await input.isVisible().catch(() => false)
+              ) {
+                await input.click({
+                  force: true
+                });
+
+                console.log('OK clicked.');
+
+                await dialog.waitFor({
+                  state: 'hidden',
+                  timeout: 10000
+                }).catch(() => {});
+
+                return;
+              }
+            }
+
+            // Fallback: visible OK text.
+            const okText = dialog.getByText(
+              'OK',
+              { exact: true }
+            ).last();
+
+            if (
+              await okText.count() &&
+              await okText.isVisible().catch(() => false)
+            ) {
+              await okText.click({
+                force: true
+              });
+
+              console.log('OK text clicked.');
+
+              await dialog.waitFor({
+                state: 'hidden',
+                timeout: 10000
+              }).catch(() => {});
+
+              return;
+            }
+
+            console.log(
+              'Popup could not be closed normally.'
+            );
+          }
+
+          async function main() {
             const browser = await chromium.launch({
               headless: true
             });
@@ -35,387 +160,475 @@ jobs:
               }
             });
 
-            // ==========================================
-            // STEP 2
-            // ==========================================
+            try {
+              // ==================================================
+              // STEP 2
+              // ==================================================
 
-            await page.goto(
-              'https://www.ingolstadt.de/tevisweb/select2?md=5',
-              {
-                waitUntil: 'networkidle',
-                timeout: 60000
-              }
-            );
+              console.log(
+                '\n===== OPENING TEVIS ====='
+              );
 
-            await page.getByText('Wohnungsänderung', {
-              exact: true
-            }).click();
-
-            await page.waitForTimeout(1000);
-
-            await page.locator('#button-plus-246').click();
-
-            await page.waitForTimeout(500);
-
-            console.log(
-              'Quantity:',
-              await page.locator('#input-246').inputValue()
-            );
-
-            // ==========================================
-            // STEP 2 -> STEP 3
-            // ==========================================
-
-            await page.locator('#WeiterButton').click();
-
-            // ==========================================
-            // CLOSE INFORMATION POPUP
-            // ==========================================
-
-            const dialog = page.locator('#TevisDialog');
-
-            if (await dialog.isVisible().catch(() => false)) {
-              console.log('OK popup found.');
-
-              const okInput = dialog.locator(
-                'input[type="button"], input[type="submit"]'
-              ).filter({
-                hasValue: 'OK'
-              }).first();
-
-              if (
-                await okInput.count() > 0 &&
-                await okInput.isVisible().catch(() => false)
-              ) {
-                await okInput.click();
-              } else {
-                const okButton = dialog.getByRole('button', {
-                  name: 'OK',
-                  exact: true
-                }).first();
-
-                if (
-                  await okButton.count() > 0 &&
-                  await okButton.isVisible().catch(() => false)
-                ) {
-                  await okButton.click();
-                } else {
-                  const okText = dialog.getByText('OK', {
-                    exact: true
-                  }).first();
-
-                  if (await okText.count() > 0) {
-                    await okText.click();
-                  }
+              await page.goto(
+                START_URL,
+                {
+                  waitUntil: 'networkidle',
+                  timeout: 60000
                 }
-              }
-
-              await dialog.waitFor({
-                state: 'hidden',
-                timeout: 10000
-              }).catch(() => {});
-
-              console.log('OK popup closed.');
-            }
-
-            // ==========================================
-            // WAIT FOR STEP 3
-            // ==========================================
-
-            await page.locator('#WeiterButton').waitFor({
-              state: 'visible',
-              timeout: 30000
-            });
-
-            await page.waitForTimeout(1000);
-
-            console.log('\n===== STEP 3 =====');
-            console.log('URL:', page.url());
-            console.log('TITLE:', await page.title());
-
-            // ==========================================
-            // STEP 3 -> STEP 4
-            //
-            // IMPORTANT:
-            // This is the same successful approach:
-            // use the visible Weiter button and force
-            // the click because TEVIS can leave an
-            // overlay in the DOM.
-            // ==========================================
-
-            const weiter = page.locator(
-              '#WeiterButton:visible'
-            );
-
-            console.log(
-              'Visible Weiter count:',
-              await weiter.count()
-            );
-
-            if (await weiter.count() === 0) {
-              throw new Error(
-                'Step 3 Weiter button not found.'
-              );
-            }
-
-            console.log('Step 3 Weiter found.');
-
-            // Start watching for the URL change BEFORE
-            // clicking the button.
-            const urlChange = page.waitForURL(
-              url => url.pathname.includes('/suggest'),
-              {
-                timeout: 30000,
-                waitUntil: 'domcontentloaded'
-              }
-            ).catch(() => null);
-
-            await weiter.click({
-              force: true
-            });
-
-            // Wait for navigation if it happened.
-            await urlChange;
-
-            // Give TEVIS/AJAX time to finish.
-            await page.waitForTimeout(3000);
-
-            // ==========================================
-            // VERIFY STEP 4
-            // ==========================================
-
-            console.log('\n===== STEP 4 =====');
-            console.log('URL:', page.url());
-            console.log('TITLE:', await page.title());
-
-            if (!page.url().includes('/suggest')) {
-              console.log(
-                '\nStep 4 navigation did not complete normally.'
               );
 
               console.log(
-                'Current URL:',
+                'Initial URL:',
+                page.url()
+              );
+
+              // Select the appointment.
+              const wohnung = page.getByText(
+                'Wohnungsänderung',
+                {
+                  exact: true
+                }
+              );
+
+              await wohnung.waitFor({
+                state: 'visible',
+                timeout: 30000
+              });
+
+              await wohnung.click();
+
+              await page.waitForTimeout(1000);
+
+              // Increase quantity for the required appointment.
+              await page.locator(
+                '#button-plus-246'
+              ).click();
+
+              await page.waitForTimeout(500);
+
+              console.log(
+                'Quantity:',
+                await page.locator(
+                  '#input-246'
+                ).inputValue()
+              );
+
+              // ==================================================
+              // STEP 2 -> STEP 3
+              // ==================================================
+
+              console.log(
+                '\n===== STEP 2 -> STEP 3 ====='
+              );
+
+              await page.locator(
+                '#WeiterButton'
+              ).click({
+                force: true
+              });
+
+              // The information popup appears after this.
+              await page.waitForTimeout(500);
+
+              await closeTevisDialog(page);
+
+              // Wait for the location page to actually appear.
+              await page.waitForTimeout(1500);
+
+              console.log(
+                'After Step 2 URL:',
                 page.url()
               );
 
               console.log(
-                'Current page title:',
+                'After Step 2 title:',
                 await page.title()
               );
 
-              throw new Error(
-                'Did not reach Step 4 /suggest page.'
-              );
-            }
+              // ==================================================
+              // STEP 3
+              // ==================================================
 
-            // ==========================================
-            // STEP 4 BODY
-            // ==========================================
+              if (
+                !page.url().includes('/location')
+              ) {
+                console.log(
+                  'WARNING: URL is not /location yet.'
+                );
 
-            const body =
-              await page.locator('body').innerText();
+                // Give TEVIS/AJAX another chance.
+                await page.waitForTimeout(2000);
+              }
 
-            console.log('\n===== STEP 4 BODY =====');
-
-            console.log(
-              body.substring(0, 12000)
-            );
-
-            // ==========================================
-            // FIND ALL DATES IN 2026
-            // ==========================================
-
-            const dates = [
-              ...new Set(
-                body.match(
-                  /\b\d{1,2}\.\d{1,2}\.2026\b/g
-                ) || []
-              )
-            ];
-
-            console.log(
-              '\n===== ALL 2026 DATES FOUND ====='
-            );
-
-            console.log(
-              dates.length
-                ? dates.join('\n')
-                : 'NONE'
-            );
-
-            // ==========================================
-            // FIND SEPTEMBER 2026 DATES
-            // ==========================================
-
-            const septemberDates = [
-              ...new Set(
-                body.match(
-                  /\b\d{1,2}\.09\.2026\b/g
-                ) || []
-              )
-            ];
-
-            console.log(
-              '\n===== SEPTEMBER 2026 DATES FOUND ====='
-            );
-
-            if (septemberDates.length === 0) {
-              console.log('NONE');
-            } else {
               console.log(
-                septemberDates.join('\n')
-              );
-            }
-
-            // ==========================================
-            // FIND TIMES
-            // ==========================================
-
-            const allTimes = [
-              ...new Set(
-                body.match(
-                  /\b\d{1,2}:\d{2}\b/g
-                ) || []
-              )
-            ];
-
-            console.log(
-              '\n===== TIMES FOUND ====='
-            );
-
-            console.log(
-              allTimes.length
-                ? allTimes.join(', ')
-                : 'NONE'
-            );
-
-            // ==========================================
-            // PRINT SEPTEMBER CONTEXT
-            // ==========================================
-
-            console.log(
-              '\n===== SEPTEMBER CONTEXT ====='
-            );
-
-            for (const date of septemberDates) {
-              const index = body.indexOf(date);
-
-              const start = Math.max(
-                0,
-                index - 300
-              );
-
-              const end = Math.min(
-                body.length,
-                index + 1500
+                '\n===== STEP 3 ====='
               );
 
               console.log(
-                `\n--- ${date} ---`
+                'URL:',
+                page.url()
               );
 
               console.log(
-                body.substring(start, end)
+                'TITLE:',
+                await page.title()
               );
-            }
 
-            // ==========================================
-            // INSPECT ELEMENTS CONTAINING SEPTEMBER
-            // ==========================================
+              const locationWeiter =
+                page.locator(
+                  'input[type="submit"][value="Weiter"]'
+                ).filter({
+                  visible: true
+                }).last();
 
-            console.log(
-              '\n===== SEPTEMBER DOM ELEMENTS ====='
-            );
+              // Playwright's filter({visible}) is not
+              // available in all versions, so use locator
+              // and inspect visibility manually below.
+              const allWeiter =
+                page.locator(
+                  'input[type="submit"][value="Weiter"]'
+                );
 
-            const septemberElements =
-              await page.locator(
-                'a, button, input, td, span, div'
-              ).evaluateAll(els =>
-                els.map(el => ({
-                  tag: el.tagName,
+              let visibleWeiter = null;
 
-                  text: (
-                    el.innerText ||
-                    el.value ||
-                    ''
-                  ).trim().replace(/\s+/g, ' '),
+              const count =
+                await allWeiter.count();
 
-                  id: el.id || '',
+              console.log(
+                'Weiter candidates:',
+                count
+              );
 
-                  class:
-                    typeof el.className === 'string'
-                      ? el.className
-                      : '',
+              for (let i = 0; i < count; i++) {
+                const candidate =
+                  allWeiter.nth(i);
 
-                  href:
-                    el.getAttribute('href') || '',
+                if (
+                  await candidate.isVisible()
+                    .catch(() => false)
+                ) {
+                  visibleWeiter = candidate;
+                  break;
+                }
+              }
 
-                  name:
-                    el.getAttribute('name') || '',
+              if (!visibleWeiter) {
+                throw new Error(
+                  'Could not find visible Step 3 Weiter button.'
+                );
+              }
 
-                  type:
-                    el.getAttribute('type') || '',
+              console.log(
+                'Step 3 Weiter found.'
+              );
 
-                  role:
-                    el.getAttribute('role') || ''
-                }))
-                .filter(x =>
-                  x.text.includes('.09.2026')
+              // This is important:
+              // force-click exactly like the successful test.
+              await visibleWeiter.click({
+                force: true
+              });
+
+              // ==================================================
+              // STEP 4
+              // ==================================================
+
+              console.log(
+                '\n===== WAITING FOR STEP 4 ====='
+              );
+
+              // Do NOT use waitForURL() here.
+              // TEVIS can update the page without normal
+              // Playwright navigation events.
+              await page.waitForTimeout(3000);
+
+              // Wait until the title shows Step 4.
+              try {
+                await page.waitForFunction(
+                  () =>
+                    document.title.includes(
+                      'Schritt 4 von 6'
+                    ),
+                  null,
+                  {
+                    timeout: 15000
+                  }
+                );
+              } catch {
+                console.log(
+                  'Step 4 title did not appear immediately.'
+                );
+              }
+
+              console.log(
+                '\n===== CURRENT PAGE ====='
+              );
+
+              console.log(
+                'URL:',
+                page.url()
+              );
+
+              console.log(
+                'TITLE:',
+                await page.title()
+              );
+
+              // ==================================================
+              // VERIFY /suggest
+              // ==================================================
+
+              if (
+                !page.url().includes('/suggest')
+              ) {
+                // Sometimes the page needs a little longer.
+                await page.waitForTimeout(3000);
+              }
+
+              console.log(
+                'Final URL:',
+                page.url()
+              );
+
+              if (
+                !page.url().includes('/suggest')
+              ) {
+                await page.screenshot({
+                  path: 'failed-step4.png',
+                  fullPage: true
+                });
+
+                throw new Error(
+                  'Did not reach /suggest. Current URL: ' +
+                  page.url()
+                );
+              }
+
+              console.log(
+                '\n===== STEP 4 REACHED ====='
+              );
+
+              // ==================================================
+              // READ APPOINTMENT PAGE
+              // ==================================================
+
+              const body =
+                await page.locator(
+                  'body'
+                ).innerText();
+
+              console.log(
+                '\n===== STEP 4 BODY ====='
+              );
+
+              console.log(
+                body.substring(0, 12000)
+              );
+
+              // ==================================================
+              // FIND SEPTEMBER DATES
+              // ==================================================
+
+              console.log(
+                '\n===== SEARCHING FOR SEPTEMBER ====='
+              );
+
+              const lines =
+                body
+                  .split('\n')
+                  .map(x => x.trim())
+                  .filter(Boolean);
+
+              const septemberDates = [];
+
+              // German TEVIS output normally contains dates
+              // such as:
+              //
+              // Freitag, 04.09.2026
+              //
+              // We search the entire page text rather than
+              // depending on fragile CSS selectors.
+              for (const line of lines) {
+                const match = line.match(
+                  /\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/
+                );
+
+                if (!match) {
+                  continue;
+                }
+
+                const day =
+                  Number(match[1]);
+
+                const month =
+                  Number(match[2]);
+
+                const year =
+                  Number(match[3]);
+
+                if (
+                  month === TARGET_MONTH
+                ) {
+                  septemberDates.push({
+                    day,
+                    month,
+                    year,
+                    text: line
+                  });
+                }
+              }
+
+              // Remove duplicates.
+              const uniqueDates =
+                Array.from(
+                  new Map(
+                    septemberDates.map(x => [
+                      `${x.day}.${x.month}.${x.year}`,
+                      x
+                    ])
+                  ).values()
+                );
+
+              console.log(
+                '\nSeptember dates found:',
+                uniqueDates.length
+              );
+
+              console.log(
+                JSON.stringify(
+                  uniqueDates,
+                  null,
+                  2
                 )
               );
 
-            console.log(
-              JSON.stringify(
-                septemberElements,
-                null,
-                2
-              )
-            );
+              // ==================================================
+              // FIND TIME BUTTONS / LINKS
+              // ==================================================
 
-            // ==========================================
-            // RESULT
-            // ==========================================
+              const candidates =
+                await page.locator(
+                  'button, input, a, [role="button"]'
+                ).evaluateAll(els =>
+                  els.map(el => ({
+                    text: (
+                      el.innerText ||
+                      el.value ||
+                      ''
+                    ).trim(),
 
-            console.log(
-              '\n=========================================='
-            );
+                    tag: el.tagName,
 
-            if (septemberDates.length > 0) {
+                    id: el.id,
+
+                    name:
+                      el.getAttribute('name'),
+
+                    class:
+                      typeof el.className ===
+                      'string'
+                        ? el.className
+                        : '',
+
+                    href:
+                      el.getAttribute('href'),
+
+                    aria:
+                      el.getAttribute(
+                        'aria-label'
+                      ),
+
+                    type:
+                      el.getAttribute('type')
+                  }))
+                );
+
+              const timeCandidates =
+                candidates.filter(x =>
+                  /\b\d{1,2}:\d{2}\b/.test(
+                    x.text
+                  )
+                );
+
               console.log(
-                '🚨 SEPTEMBER 2026 APPOINTMENT FOUND'
+                '\n===== TIME CANDIDATES ====='
               );
 
               console.log(
-                'September dates:',
-                septemberDates.join(', ')
+                JSON.stringify(
+                  timeCandidates,
+                  null,
+                  2
+                )
               );
 
+              // ==================================================
+              // BUILD ALERT
+              // ==================================================
+
+              if (
+                uniqueDates.length > 0
+              ) {
+                const dateText =
+                  uniqueDates
+                    .map(x => x.text)
+                    .join('\n');
+
+                const timeText =
+                  timeCandidates.length > 0
+                    ? timeCandidates
+                        .map(x => x.text)
+                        .join('\n')
+                    : 'Time elements detected on page; see workflow log.';
+
+                const message =
+                  [
+                    '🚨 SEPTEMBER APPOINTMENT FOUND',
+                    '',
+                    'Ingolstadt Bürgeramt',
+                    'Anliegen: Zuzug aus dem Ausland ohne Familie',
+                    '',
+                    'September date(s):',
+                    dateText,
+                    '',
+                    'Detected times:',
+                    timeText,
+                    '',
+                    'URL:',
+                    page.url()
+                  ].join('\n');
+
+                console.log(
+                  '\n===== ALERT ====='
+                );
+
+                console.log(message);
+
+                await sendAlert(message);
+              } else {
+                console.log(
+                  '\nNo September appointment date found.'
+                );
+              }
+
+              // ==================================================
+              // SCREENSHOT
+              // ==================================================
+
+              await page.screenshot({
+                path: 'step4-times.png',
+                fullPage: true
+              });
+
               console.log(
-                'Times detected:',
-                allTimes.join(', ')
+                '\n===== CHECK COMPLETE ====='
               );
-            } else {
-              console.log(
-                'NO SEPTEMBER 2026 APPOINTMENT FOUND'
-              );
+
+            } finally {
+              await browser.close();
             }
+          }
 
-            console.log(
-              '=========================================='
-            );
-
-            // ==========================================
-            // SCREENSHOT
-            // ==========================================
-
-            await page.screenshot({
-              path: 'step4-times.png',
-              fullPage: true
-            });
-
-            await browser.close();
-
-          })().catch(error => {
+          main().catch(error => {
             console.error(error);
             process.exit(1);
           });
@@ -428,4 +641,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: appointment-step4
-          path: step4-times.png
+          path: |
+            step4-times.png
+            failed-step4.png
+          if-no-files-found: ignore
