@@ -1,4 +1,4 @@
-name: Find Ingolstadt service
+name: Test Ingolstadt appointment
 
 on:
   workflow_dispatch:
@@ -18,13 +18,14 @@ jobs:
           npm install playwright
           npx playwright install --with-deps chromium
 
-      - name: Find service
+      - name: Go to appointment page
         run: |
           cat > test.js <<'EOF'
           const { chromium } = require('playwright');
 
           (async () => {
-            const browser = await chromium.launch({headless: true});
+            const browser = await chromium.launch({ headless: true });
+
             const page = await browser.newPage({
               viewport: { width: 1280, height: 1000 }
             });
@@ -34,42 +35,43 @@ jobs:
               { waitUntil: 'networkidle', timeout: 60000 }
             );
 
+            console.log('Opened:', await page.title());
+
+            // Select Wohnungsänderung
             await page.getByText('Wohnungsänderung', {
               exact: true
             }).click();
 
             await page.waitForTimeout(1000);
 
-            const target = page.getByText(
-              'Zuzug aus dem Ausland ohne Familie',
-              { exact: true }
-            );
+            // Select Zuzug aus dem Ausland ohne Familie
+            await page.locator('#button-plus-246').click();
 
-            await target.waitFor({
-              state: 'visible',
-              timeout: 15000
-            });
+            await page.waitForTimeout(1000);
 
-            console.log('TARGET FOUND');
+            // Confirm that the quantity is now 1
+            const quantity = await page.locator('#input-246').inputValue();
 
-            // Print the HTML around the target service
-            const html = await target.evaluate(el => {
-              let current = el;
-              let result = '';
+            console.log('Quantity:', quantity);
 
-              for (let i = 0; i < 6 && current; i++) {
-                result += '\\n--- LEVEL ' + i + ' ---\\n';
-                result += current.outerHTML.substring(0, 5000);
-                current = current.parentElement;
-              }
+            if (quantity !== '1') {
+              throw new Error(
+                `Expected quantity 1, but got ${quantity}`
+              );
+            }
 
-              return result;
-            });
+            // Continue
+            await page.locator('#WeiterButton').click();
 
-            console.log(html);
+            await page.waitForLoadState('networkidle').catch(() => {});
+            await page.waitForTimeout(1500);
+
+            console.log('SUCCESS - clicked Weiter');
+            console.log('URL:', page.url());
+            console.log('TITLE:', await page.title());
 
             await page.screenshot({
-              path: 'service.png',
+              path: 'appointment-page.png',
               fullPage: true
             });
 
@@ -83,5 +85,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tevis-service
-          path: service.png
+          name: appointment-page
+          path: appointment-page.png
