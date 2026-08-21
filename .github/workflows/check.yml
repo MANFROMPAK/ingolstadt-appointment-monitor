@@ -8,9 +8,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -28,24 +25,35 @@ jobs:
 
           (async () => {
             const browser = await chromium.launch({headless: true});
-            const page = await browser.newPage();
+            const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 
             await page.goto(
               'https://www.ingolstadt.de/tevisweb/select2?md=5',
-              { waitUntil: 'domcontentloaded', timeout: 60000 }
+              { waitUntil: 'networkidle', timeout: 60000 }
             );
 
-            console.log('Page title:', await page.title());
-            console.log('Current URL:', page.url());
+            console.log('Opened:', await page.title());
 
-            await page.getByText('Zuzug aus dem Ausland ohne Familie', {
-              exact: true
-            }).scrollIntoViewIfNeeded();
+            // Click Wohnungsänderung
+            await page.getByText('Wohnungsänderung', { exact: true }).click();
 
-            console.log('Found: Zuzug aus dem Ausland ohne Familie');
+            console.log('Clicked Wohnungsänderung');
+
+            // Wait for the next options to appear
+            await page.waitForTimeout(1000);
+
+            // Check that the desired option now exists
+            const option = page.getByText(
+              'Zuzug aus dem Ausland ohne Familie',
+              { exact: true }
+            );
+
+            await option.waitFor({ state: 'visible', timeout: 15000 });
+
+            console.log('Found Zuzug aus dem Ausland ohne Familie');
 
             await page.screenshot({
-              path: 'tevis-test.png',
+              path: 'after-selection.png',
               fullPage: true
             });
 
@@ -60,4 +68,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tevis-test
-          path: tevis-test.png
+          path: after-selection.png
