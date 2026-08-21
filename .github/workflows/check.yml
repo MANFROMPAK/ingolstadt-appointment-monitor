@@ -35,14 +35,13 @@ jobs:
               { waitUntil: 'networkidle', timeout: 60000 }
             );
 
-            // STEP 2: Select the Bürgeramt appointment
+            // STEP 2
             await page.getByText('Wohnungsänderung', {
               exact: true
             }).click();
 
             await page.waitForTimeout(1000);
 
-            // Select "Zuzug aus dem Ausland ohne Familie"
             await page.locator('#button-plus-246').click();
 
             await page.waitForTimeout(500);
@@ -60,7 +59,6 @@ jobs:
 
             await page.locator('#WeiterButton').click();
 
-            // Confirmation popup
             await page.getByRole('button', {
               name: 'OK',
               exact: true
@@ -74,34 +72,41 @@ jobs:
             console.log('URL:', page.url());
             console.log('TITLE:', await page.title());
 
-            console.log('\n===== STEP 3 BODY =====');
-
             const body = await page.locator('body').innerText();
+
+            console.log('\n===== STEP 3 BODY =====');
             console.log(body.substring(0, 5000));
 
-            // STEP 3: Select the available location
-            const location = page.locator(
+            // STEP 3
+            // "Standort auswählen" is a SUBMIT button.
+            console.log('\n===== LOCATION BUTTONS =====');
+
+            const locationButtons = await page.locator(
               'input[name="select_location"]'
+            ).evaluateAll(els =>
+              els.map(el => ({
+                value: el.value,
+                type: el.type,
+                name: el.name,
+                class: el.className
+              }))
             );
 
             console.log(
-              '\nLocation selector count:',
-              await location.count()
+              JSON.stringify(locationButtons, null, 2)
             );
 
-            if (await location.count() > 0) {
-              await location.first().check();
-            }
+            // Click the first "Standort auswählen" button.
+            const locationButton = page.locator(
+              'input[name="select_location"]'
+            ).first();
 
-            console.log('\nLocation selected.');
-
-            // STEP 3 -> STEP 4
             const navigation2 = page.waitForNavigation({
               waitUntil: 'networkidle',
               timeout: 10000
             }).catch(() => null);
 
-            await page.locator('#WeiterButton').click();
+            await locationButton.click();
 
             await navigation2;
 
@@ -114,9 +119,10 @@ jobs:
             console.log('\n===== NEXT STEP BODY =====');
 
             const body2 = await page.locator('body').innerText();
+
             console.log(body2.substring(0, 5000));
 
-            console.log('\n===== NEXT STEP BUTTONS/LINKS =====');
+            console.log('\n===== NEXT STEP ELEMENTS =====');
 
             const elements = await page.locator(
               'button, input, a, select'
@@ -128,10 +134,14 @@ jobs:
                 name: el.getAttribute('name'),
                 aria: el.getAttribute('aria-label'),
                 value: el.value || null
-              })).filter(x => x.text || x.id || x.name || x.aria)
+              })).filter(x =>
+                x.text || x.id || x.name || x.aria
+              )
             );
 
-            console.log(JSON.stringify(elements, null, 2));
+            console.log(
+              JSON.stringify(elements, null, 2)
+            );
 
             await page.screenshot({
               path: 'after-location.png',
