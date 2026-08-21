@@ -36,7 +36,7 @@ jobs:
             });
 
             // ==========================================
-            // STEP 1 - OPEN TEVIS
+            // STEP 2 - OPEN
             // ==========================================
 
             await page.goto(
@@ -48,7 +48,7 @@ jobs:
             );
 
             // ==========================================
-            // STEP 2 - SELECT ANLIEGEN
+            // SELECT ANLIEGEN
             // ==========================================
 
             await page.getByText('Wohnungsänderung', {
@@ -67,13 +67,13 @@ jobs:
             );
 
             // ==========================================
-            // CLICK WEITER
+            // CLICK WEITER ON STEP 2
             // ==========================================
 
             await page.locator('#WeiterButton').click();
 
             // ==========================================
-            // CLOSE THE INFORMATION POPUP
+            // CLOSE INFORMATION POPUP
             // ==========================================
 
             const okButton = page.getByRole('button', {
@@ -87,31 +87,35 @@ jobs:
               console.log('OK popup closed.');
             }
 
-            // Wait for Step 3
-            await page.waitForURL(
-              /\/location/,
-              {
-                timeout: 30000
-              }
-            );
+            // ==========================================
+            // WAIT UNTIL STEP 3 IS ACTUALLY THERE
+            // ==========================================
 
-            await page.waitForTimeout(2000);
+            await page.locator(
+              'input[type="submit"][value="Weiter"]'
+            ).waitFor({
+              state: 'visible',
+              timeout: 30000
+            });
+
+            await page.waitForTimeout(1500);
 
             // ==========================================
-            // STEP 3 - LOCATION
+            // STEP 3
             // ==========================================
 
             console.log('\n===== STEP 3 =====');
             console.log('URL:', page.url());
             console.log('TITLE:', await page.title());
 
-            const step3Body = await page.locator('body').innerText();
+            const step3Body =
+              await page.locator('body').innerText();
 
             console.log('\n===== STEP 3 BODY =====');
             console.log(step3Body.substring(0, 5000));
 
             // ==========================================
-            // STEP 3 - FIND VISIBLE WEITER
+            // FIND VISIBLE WEITER
             // ==========================================
 
             const weiter = page.locator(
@@ -137,15 +141,17 @@ jobs:
 
             await weiter.click();
 
-            // Step 4 should be /suggest
-            await page.waitForURL(
-              /\/suggest/,
-              {
-                timeout: 30000
-              }
-            );
+            // ==========================================
+            // WAIT FOR STEP 4 CONTENT
+            // Do NOT use waitForURL here.
+            // ==========================================
 
-            await page.waitForTimeout(2000);
+            await page.locator('body').waitFor({
+              state: 'visible',
+              timeout: 30000
+            });
+
+            await page.waitForTimeout(3000);
 
             // ==========================================
             // STEP 4
@@ -155,7 +161,8 @@ jobs:
             console.log('URL:', page.url());
             console.log('TITLE:', await page.title());
 
-            const step4Body = await page.locator('body').innerText();
+            const step4Body =
+              await page.locator('body').innerText();
 
             console.log('\n===== STEP 4 BODY =====');
             console.log(step4Body.substring(0, 8000));
@@ -164,39 +171,41 @@ jobs:
             // FIND TIME ELEMENTS
             // ==========================================
 
-            console.log('\n===== STEP 4 TIME ELEMENTS =====');
-
-            const timeElements = await page.locator(
-              'button, input, a, [role="button"]'
-            ).evaluateAll(els =>
-              els.map(el => ({
-                text: (
-                  el.innerText ||
-                  el.value ||
-                  ''
-                ).trim(),
-
-                tag: el.tagName,
-
-                id: el.id,
-
-                name: el.getAttribute('name'),
-
-                class: (
-                  typeof el.className === 'string'
-                    ? el.className
-                    : ''
-                ),
-
-                href: el.getAttribute('href'),
-
-                aria: el.getAttribute('aria-label'),
-
-                type: el.getAttribute('type')
-              })).filter(x =>
-                /^\d{1,2}:\d{2}$/.test(x.text)
-              )
+            console.log(
+              '\n===== STEP 4 TIME ELEMENTS ====='
             );
+
+            const timeElements =
+              await page.locator(
+                'button, input, a, [role="button"]'
+              ).evaluateAll(els =>
+                els.map(el => ({
+                  text: (
+                    el.innerText ||
+                    el.value ||
+                    ''
+                  ).trim(),
+
+                  tag: el.tagName,
+
+                  id: el.id,
+
+                  name: el.getAttribute('name'),
+
+                  class:
+                    typeof el.className === 'string'
+                      ? el.className
+                      : '',
+
+                  href: el.getAttribute('href'),
+
+                  aria: el.getAttribute('aria-label'),
+
+                  type: el.getAttribute('type')
+                })).filter(x =>
+                  /^\d{1,2}:\d{2}$/.test(x.text)
+                )
+              );
 
             console.log(
               JSON.stringify(
@@ -207,29 +216,42 @@ jobs:
             );
 
             // ==========================================
-            // ALSO FIND ELEMENTS CONTAINING 10:20
+            // FIND 10:20 SPECIFICALLY
             // ==========================================
 
-            console.log('\n===== ELEMENTS CONTAINING 10:20 =====');
-
-            const tenTwenty = await page.locator(
-              'text=10:20'
-            ).evaluateAll(els =>
-              els.map(el => ({
-                tag: el.tagName,
-                text: (el.innerText || el.value || '').trim(),
-                id: el.id,
-                class: (
-                  typeof el.className === 'string'
-                    ? el.className
-                    : ''
-                ),
-                name: el.getAttribute('name'),
-                href: el.getAttribute('href'),
-                role: el.getAttribute('role'),
-                type: el.getAttribute('type')
-              }))
+            console.log(
+              '\n===== ELEMENTS CONTAINING 10:20 ====='
             );
+
+            const tenTwenty =
+              await page.locator(
+                'text=10:20'
+              ).evaluateAll(els =>
+                els.map(el => ({
+                  tag: el.tagName,
+
+                  text: (
+                    el.innerText ||
+                    el.value ||
+                    ''
+                  ).trim(),
+
+                  id: el.id,
+
+                  class:
+                    typeof el.className === 'string'
+                      ? el.className
+                      : '',
+
+                  name: el.getAttribute('name'),
+
+                  href: el.getAttribute('href'),
+
+                  role: el.getAttribute('role'),
+
+                  type: el.getAttribute('type')
+                }))
+              );
 
             console.log(
               JSON.stringify(
