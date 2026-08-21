@@ -18,25 +18,36 @@ jobs:
           npm install playwright
           npx playwright install --with-deps chromium
 
-      - name: Inspect next step
+      - name: Inspect appointment step
         run: |
           cat > test.js <<'EOF'
           const { chromium } = require('playwright');
 
           (async () => {
-            const browser = await chromium.launch({ headless: true });
-
-            const page = await browser.newPage({
-              viewport: { width: 1280, height: 1000 }
+            const browser = await chromium.launch({
+              headless: true
             });
 
+            const page = await browser.newPage({
+              viewport: {
+                width: 1280,
+                height: 1000
+              }
+            });
+
+            // =========================
             // STEP 2
+            // =========================
+
             await page.goto(
               'https://www.ingolstadt.de/tevisweb/select2?md=5',
-              { waitUntil: 'networkidle', timeout: 60000 }
+              {
+                waitUntil: 'networkidle',
+                timeout: 60000
+              }
             );
 
-            // KEEP THE WORKING STEP 2 CODE
+            // This was already working — keep it.
             await page.getByText('Wohnungsänderung', {
               exact: true
             }).click();
@@ -52,27 +63,45 @@ jobs:
               await page.locator('#input-246').inputValue()
             );
 
+            // =========================
+            // CLICK STEP 2 WEITER
+            // =========================
+
             const navigation = page.waitForNavigation({
               waitUntil: 'networkidle',
-              timeout: 10000
+              timeout: 15000
             }).catch(() => null);
 
             await page.locator('#WeiterButton').click();
+
+            // =========================
+            // CLOSE INFORMATION POPUP
+            // =========================
 
             const okButton = page.getByRole('button', {
               name: 'OK',
               exact: true
             });
 
-            if (await okButton.isVisible().catch(() => false)) {
-              await okButton.click();
-            }
+            await okButton.waitFor({
+              state: 'visible',
+              timeout: 10000
+            });
+
+            console.log('OK popup found.');
+
+            await okButton.click();
+
+            console.log('OK popup closed.');
 
             await navigation;
 
             await page.waitForTimeout(3000);
 
+            // =========================
             // STEP 3
+            // =========================
+
             console.log('\\n===== STEP 3 =====');
             console.log('URL:', page.url());
             console.log('TITLE:', await page.title());
@@ -80,12 +109,15 @@ jobs:
             console.log('\\n===== STEP 3 BODY =====');
 
             const body = await page.locator('body').innerText();
-            console.log(body.substring(0, 5000));
 
-            // Find the VISIBLE Weiter button.
-            // There are two inputs with name="select_location".
-            // The first one ("Standort auswählen") is hidden.
-            // We specifically select value="Weiter".
+            console.log(
+              body.substring(0, 5000)
+            );
+
+            // =========================
+            // FIND VISIBLE WEITER
+            // =========================
+
             const weiter = page.locator(
               'input[type="submit"][value="Weiter"]:visible'
             );
@@ -96,10 +128,18 @@ jobs:
             );
 
             if (await weiter.count() === 0) {
-              throw new Error('Visible Weiter button was not found on Step 3');
+              throw new Error(
+                'Visible Weiter button was not found on Step 3'
+              );
             }
 
-            console.log('Clicking visible Weiter...');
+            console.log(
+              'Step 3 Weiter found.'
+            );
+
+            // =========================
+            // CLICK STEP 3 WEITER
+            // =========================
 
             const navigation3 = page.waitForNavigation({
               waitUntil: 'networkidle',
@@ -112,6 +152,10 @@ jobs:
 
             await page.waitForTimeout(3000);
 
+            // =========================
+            // NEXT STEP
+            // =========================
+
             console.log('\\n===== AFTER STEP 3 =====');
             console.log('URL:', page.url());
             console.log('TITLE:', await page.title());
@@ -119,7 +163,14 @@ jobs:
             console.log('\\n===== NEXT STEP BODY =====');
 
             const nextBody = await page.locator('body').innerText();
-            console.log(nextBody.substring(0, 5000));
+
+            console.log(
+              nextBody.substring(0, 5000)
+            );
+
+            // =========================
+            // SCREENSHOT
+            // =========================
 
             await page.screenshot({
               path: 'after-location.png',
@@ -127,6 +178,7 @@ jobs:
             });
 
             await browser.close();
+
           })();
           EOF
 
