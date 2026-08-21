@@ -18,7 +18,7 @@ jobs:
           npm install playwright
           npx playwright install --with-deps chromium
 
-      - name: Inspect appointment step
+      - name: Inspect next step
         run: |
           cat > test.js <<'EOF'
           const { chromium } = require('playwright');
@@ -36,20 +36,22 @@ jobs:
               { waitUntil: 'networkidle', timeout: 60000 }
             );
 
-            await page.getByText('Zuzug aus dem Ausland ohne Familie', {
+            // KEEP THE WORKING STEP 2 CODE
+            await page.getByText('Wohnungsänderung', {
               exact: true
             }).click();
 
-            await page.waitForTimeout(500);
+            await page.waitForTimeout(1000);
 
             await page.locator('#button-plus-246').click();
+
+            await page.waitForTimeout(500);
 
             console.log(
               'Quantity:',
               await page.locator('#input-246').inputValue()
             );
 
-            // Click Weiter on Step 2
             const navigation = page.waitForNavigation({
               waitUntil: 'networkidle',
               timeout: 10000
@@ -57,7 +59,6 @@ jobs:
 
             await page.locator('#WeiterButton').click();
 
-            // Click OK in the information popup if it appears
             const okButton = page.getByRole('button', {
               name: 'OK',
               exact: true
@@ -68,6 +69,7 @@ jobs:
             }
 
             await navigation;
+
             await page.waitForTimeout(3000);
 
             // STEP 3
@@ -80,24 +82,25 @@ jobs:
             const body = await page.locator('body').innerText();
             console.log(body.substring(0, 5000));
 
-            // Find the visible "Weiter" button.
-            // There are two inputs with name="select_location":
-            // one hidden "Standort auswählen" and one visible "Weiter".
+            // Find the VISIBLE Weiter button.
+            // There are two inputs with name="select_location".
+            // The first one ("Standort auswählen") is hidden.
+            // We specifically select value="Weiter".
             const weiter = page.locator(
-              'input[type="submit"][value="Weiter"]'
+              'input[type="submit"][value="Weiter"]:visible'
             );
 
             console.log(
-              '\\nVisible Weiter buttons:',
+              '\\nVisible Weiter count:',
               await weiter.count()
             );
 
-            console.log(
-              '\\nWeiter visible:',
-              await weiter.isVisible().catch(() => false)
-            );
+            if (await weiter.count() === 0) {
+              throw new Error('Visible Weiter button was not found on Step 3');
+            }
 
-            // Click the actual visible Weiter button
+            console.log('Clicking visible Weiter...');
+
             const navigation3 = page.waitForNavigation({
               waitUntil: 'networkidle',
               timeout: 15000
@@ -106,16 +109,17 @@ jobs:
             await weiter.click();
 
             await navigation3;
+
             await page.waitForTimeout(3000);
 
             console.log('\\n===== AFTER STEP 3 =====');
             console.log('URL:', page.url());
             console.log('TITLE:', await page.title());
 
-            console.log('\\n===== BODY AFTER STEP 3 =====');
+            console.log('\\n===== NEXT STEP BODY =====');
 
-            const bodyAfter = await page.locator('body').innerText();
-            console.log(bodyAfter.substring(0, 5000));
+            const nextBody = await page.locator('body').innerText();
+            console.log(nextBody.substring(0, 5000));
 
             await page.screenshot({
               path: 'after-location.png',
