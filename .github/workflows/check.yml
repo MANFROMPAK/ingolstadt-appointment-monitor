@@ -1,10 +1,10 @@
-name: Inspect appointment times
+name: Check September appointments
 
 on:
   workflow_dispatch:
 
 jobs:
-  test:
+  check:
     runs-on: ubuntu-latest
 
     steps:
@@ -18,7 +18,7 @@ jobs:
           npm install playwright
           npx playwright install --with-deps chromium
 
-      - name: Inspect appointment times
+      - name: Check September appointments
         run: |
           cat > test.js <<'EOF'
           const { chromium } = require('playwright');
@@ -63,13 +63,13 @@ jobs:
             );
 
             // ==========================================
-            // CLICK STEP 2 WEITER
+            // STEP 2 -> STEP 3
             // ==========================================
 
             await page.locator('#WeiterButton').click();
 
             // ==========================================
-            // CLOSE STEP 2 INFORMATION POPUP
+            // CLOSE INFORMATION POPUP
             // ==========================================
 
             const dialog = page.locator('#TevisDialog');
@@ -77,33 +77,30 @@ jobs:
             if (await dialog.isVisible().catch(() => false)) {
               console.log('OK popup found.');
 
-              const ok = dialog.locator(
-                'button, input'
+              const okInput = dialog.locator(
+                'input[type="button"], input[type="submit"]'
               ).filter({
-                hasText: 'OK'
+                hasValue: 'OK'
               }).first();
 
-              if (await ok.count() > 0 &&
-                  await ok.isVisible().catch(() => false)) {
-                await ok.click();
+              if (
+                await okInput.count() > 0 &&
+                await okInput.isVisible().catch(() => false)
+              ) {
+                await okInput.click();
               } else {
-                const okInput = dialog.locator(
-                  'input[type="button"], input[type="submit"]'
-                ).filter({
-                  hasValue: 'OK'
+                const okText = dialog.getByText('OK', {
+                  exact: true
                 }).first();
 
-                if (await okInput.count() > 0) {
-                  await okInput.click();
-                } else {
-                  // Last resort: click the visible OK text
-                  await dialog.getByText('OK', {
-                    exact: true
-                  }).click();
+                if (
+                  await okText.count() > 0 &&
+                  await okText.isVisible().catch(() => false)
+                ) {
+                  await okText.click();
                 }
               }
 
-              // Wait for popup to disappear
               await dialog.waitFor({
                 state: 'hidden',
                 timeout: 10000
@@ -113,26 +110,10 @@ jobs:
             }
 
             // ==========================================
-            // MAKE SURE POPUP IS GONE
+            // STEP 3
             // ==========================================
 
-            if (await dialog.isVisible().catch(() => false)) {
-              console.log(
-                'Popup still visible - pressing Escape.'
-              );
-
-              await page.keyboard.press('Escape');
-
-              await page.waitForTimeout(500);
-            }
-
-            // ==========================================
-            // WAIT FOR STEP 3
-            // ==========================================
-
-            await page.locator(
-              '#WeiterButton'
-            ).waitFor({
+            await page.locator('#WeiterButton').waitFor({
               state: 'visible',
               timeout: 30000
             });
@@ -141,27 +122,17 @@ jobs:
 
             console.log('\n===== STEP 3 =====');
             console.log('URL:', page.url());
-            console.log('TITLE:', await page.title());
 
-            const step3Body =
-              await page.locator('body').innerText();
-
-            console.log('\n===== STEP 3 BODY =====');
-            console.log(
-              step3Body.substring(0, 5000)
-            );
-
-            // ==========================================
-            // STEP 3 WEITER
-            // ==========================================
+            // Important:
+            // We intentionally do NOT try to select
+            // "Standort auswählen".
+            //
+            // The successful flow showed that the
+            // location is already available and the
+            // visible Weiter button advances to Step 4.
 
             const weiter = page.locator(
               '#WeiterButton:visible'
-            );
-
-            console.log(
-              '\nVisible Weiter count:',
-              await weiter.count()
             );
 
             if (await weiter.count() === 0) {
@@ -170,24 +141,15 @@ jobs:
               );
             }
 
-            console.log(
-              'Step 3 Weiter found.'
-            );
+            console.log('Step 3 Weiter found.');
 
-            // Check that popup is really gone
-            console.log(
-              'Dialog visible:',
-              await dialog.isVisible().catch(() => false)
-            );
-
-            // Click with force because TEVIS can leave
-            // an invisible overlay in the DOM.
+            // TEVIS can leave an overlay behind.
             await weiter.click({
               force: true
             });
 
             // ==========================================
-            // WAIT FOR STEP 4
+            // STEP 4
             // ==========================================
 
             await page.waitForTimeout(3000);
@@ -196,117 +158,187 @@ jobs:
             console.log('URL:', page.url());
             console.log('TITLE:', await page.title());
 
-            const step4Body =
-              await page.locator('body').innerText();
+            if (!page.url().includes('/suggest')) {
+              throw new Error(
+                'Did not reach Step 4 /suggest page.'
+              );
+            }
+
+            const body = await page.locator('body').innerText();
 
             console.log('\n===== STEP 4 BODY =====');
-            console.log(
-              step4Body.substring(0, 8000)
-            );
+            console.log(body.substring(0, 12000));
 
             // ==========================================
-            // FIND TIME ELEMENTS
+            // INSPECT DATE/TIME DOM
             // ==========================================
 
             console.log(
-              '\n===== STEP 4 TIME ELEMENTS ====='
+              '\n===== DATE/TIME ELEMENTS ====='
             );
 
-            const timeElements =
-              await page.locator(
-                'button, input, a, [role="button"]'
-              ).evaluateAll(els =>
-                els.map(el => ({
-                  text: (
-                    el.innerText ||
-                    el.value ||
-                    ''
-                  ).trim(),
+            const elements = await page.locator(
+              'a, button, input, td, span, div'
+            ).evaluateAll(els =>
+              els.map(el => ({
+                tag: el.tagName,
+                text: (
+                  el.innerText ||
+                  el.value ||
+                  ''
+                ).trim().replace(/\s+/g, ' '),
+                id: el.id || '',
+                class:
+                  typeof el.className === 'string'
+                    ? el.className
+                    : '',
+                href:
+                  el.getAttribute('href') || '',
+                name:
+                  el.getAttribute('name') || '',
+                type:
+                  el.getAttribute('type') || '',
+                role:
+                  el.getAttribute('role') || ''
+              }))
+              .filter(x => {
+                if (!x.text) return false;
 
-                  tag: el.tagName,
+                // Dates such as:
+                // Freitag, 02.10.2026
+                // Montag, 05.10.2026
+                const date =
+                  /\b\d{1,2}\.\d{1,2}\.\d{4}\b/.test(x.text);
 
-                  id: el.id,
+                // Times such as:
+                // 10:20
+                const time =
+                  /\b\d{1,2}:\d{2}\b/.test(x.text);
 
-                  name:
-                    el.getAttribute('name'),
+                return date || time;
+              })
+            );
 
-                  class:
-                    typeof el.className === 'string'
-                      ? el.className
-                      : '',
+            console.log(
+              JSON.stringify(elements, null, 2)
+            );
 
-                  href:
-                    el.getAttribute('href'),
+            // ==========================================
+            // FIND SEPTEMBER DATES
+            // ==========================================
 
-                  aria:
-                    el.getAttribute('aria-label'),
+            const septemberDates =
+              [...new Set(
+                body.match(
+                  /\b\d{1,2}\.09\.2026\b/g
+                ) || []
+              )];
 
-                  type:
-                    el.getAttribute('type')
-                })).filter(x =>
-                  /^\d{1,2}:\d{2}$/.test(
-                    x.text
-                  )
-                )
+            console.log(
+              '\n===== SEPTEMBER 2026 DATES FOUND ====='
+            );
+
+            console.log(
+              septemberDates.length
+                ? septemberDates.join('\n')
+                : 'NONE'
+            );
+
+            // ==========================================
+            // FIND SEPTEMBER CONTEXT
+            // ==========================================
+            //
+            // We print the surrounding text for every
+            // September date. This lets us see exactly
+            // how TEVIS represents its appointment slots.
+            //
+
+            console.log(
+              '\n===== SEPTEMBER CONTEXT ====='
+            );
+
+            for (const date of septemberDates) {
+              const index = body.indexOf(date);
+
+              const start = Math.max(
+                0,
+                index - 300
               );
 
-            console.log(
-              JSON.stringify(
-                timeElements,
-                null,
-                2
-              )
-            );
-
-            // ==========================================
-            // FIND 10:20
-            // ==========================================
-
-            console.log(
-              '\n===== ELEMENTS CONTAINING 10:20 ====='
-            );
-
-            const tenTwenty =
-              await page.locator(
-                'text=10:20'
-              ).evaluateAll(els =>
-                els.map(el => ({
-                  tag: el.tagName,
-
-                  text: (
-                    el.innerText ||
-                    el.value ||
-                    ''
-                  ).trim(),
-
-                  id: el.id,
-
-                  class:
-                    typeof el.className === 'string'
-                      ? el.className
-                      : '',
-
-                  name:
-                    el.getAttribute('name'),
-
-                  href:
-                    el.getAttribute('href'),
-
-                  role:
-                    el.getAttribute('role'),
-
-                  type:
-                    el.getAttribute('type')
-                }))
+              const end = Math.min(
+                body.length,
+                index + 1200
               );
 
+              console.log(
+                `\n--- ${date} ---`
+              );
+
+              console.log(
+                body.substring(start, end)
+              );
+            }
+
+            // ==========================================
+            // FIND ALL TIMES
+            // ==========================================
+
+            const allTimes =
+              [...new Set(
+                body.match(
+                  /\b\d{1,2}:\d{2}\b/g
+                ) || []
+              )];
+
             console.log(
-              JSON.stringify(
-                tenTwenty,
-                null,
-                2
-              )
+              '\n===== ALL TIMES FOUND ====='
             );
+
+            console.log(
+              allTimes.length
+                ? allTimes.join(', ')
+                : 'NONE'
+            );
+
+            // ==========================================
+            // SEPTEMBER RESULT
+            // ==========================================
+
+            console.log(
+              '\n=========================================='
+            );
+
+            if (septemberDates.length > 0) {
+              console.log(
+                '🚨 SEPTEMBER 2026 APPOINTMENT DATE FOUND'
+              );
+
+              console.log(
+                'Dates:',
+                septemberDates.join(', ')
+              );
+
+              console.log(
+                'Times found on Step 4:',
+                allTimes.join(', ')
+              );
+
+              console.log(
+                '=========================================='
+              );
+
+              // Exit successfully.
+              // We are ONLY detecting here.
+              // Nothing is booked.
+            } else {
+              console.log(
+                'NO SEPTEMBER 2026 APPOINTMENT FOUND'
+              );
+
+              console.log(
+                '=========================================='
+              );
+            }
 
             // ==========================================
             // SCREENSHOT
@@ -316,10 +348,6 @@ jobs:
               path: 'step4-times.png',
               fullPage: true
             });
-
-            console.log(
-              '\n===== INSPECTION COMPLETE ====='
-            );
 
             await browser.close();
 
