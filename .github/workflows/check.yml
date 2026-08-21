@@ -1,0 +1,63 @@
+name: Test Ingolstadt appointment
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Playwright
+        run: |
+          npm install playwright
+          npx playwright install --with-deps chromium
+
+      - name: Test TEVIS
+        run: |
+          cat > test.js <<'EOF'
+          const { chromium } = require('playwright');
+
+          (async () => {
+            const browser = await chromium.launch({headless: true});
+            const page = await browser.newPage();
+
+            await page.goto(
+              'https://www.ingolstadt.de/tevisweb/select2?md=5',
+              { waitUntil: 'domcontentloaded', timeout: 60000 }
+            );
+
+            console.log('Page title:', await page.title());
+            console.log('Current URL:', page.url());
+
+            await page.getByText('Zuzug aus dem Ausland ohne Familie', {
+              exact: true
+            }).scrollIntoViewIfNeeded();
+
+            console.log('Found: Zuzug aus dem Ausland ohne Familie');
+
+            await page.screenshot({
+              path: 'tevis-test.png',
+              fullPage: true
+            });
+
+            await browser.close();
+          })();
+          EOF
+
+          node test.js
+
+      - name: Save screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tevis-test
+          path: tevis-test.png
