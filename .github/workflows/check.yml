@@ -89,15 +89,24 @@ jobs:
               ) {
                 await okInput.click();
               } else {
-                const okText = dialog.getByText('OK', {
+                const okButton = dialog.getByRole('button', {
+                  name: 'OK',
                   exact: true
                 }).first();
 
                 if (
-                  await okText.count() > 0 &&
-                  await okText.isVisible().catch(() => false)
+                  await okButton.count() > 0 &&
+                  await okButton.isVisible().catch(() => false)
                 ) {
-                  await okText.click();
+                  await okButton.click();
+                } else {
+                  const okText = dialog.getByText('OK', {
+                    exact: true
+                  }).first();
+
+                  if (await okText.count() > 0) {
+                    await okText.click();
+                  }
                 }
               }
 
@@ -110,7 +119,7 @@ jobs:
             }
 
             // ==========================================
-            // STEP 3
+            // WAIT FOR STEP 3
             // ==========================================
 
             await page.locator('#WeiterButton').waitFor({
@@ -122,17 +131,25 @@ jobs:
 
             console.log('\n===== STEP 3 =====');
             console.log('URL:', page.url());
+            console.log('TITLE:', await page.title());
 
-            // Important:
-            // We intentionally do NOT try to select
-            // "Standort auswählen".
+            // ==========================================
+            // STEP 3 -> STEP 4
             //
-            // The successful flow showed that the
-            // location is already available and the
-            // visible Weiter button advances to Step 4.
+            // IMPORTANT:
+            // This is the same successful approach:
+            // use the visible Weiter button and force
+            // the click because TEVIS can leave an
+            // overlay in the DOM.
+            // ==========================================
 
             const weiter = page.locator(
               '#WeiterButton:visible'
+            );
+
+            console.log(
+              'Visible Weiter count:',
+              await weiter.count()
             );
 
             if (await weiter.count() === 0) {
@@ -143,115 +160,138 @@ jobs:
 
             console.log('Step 3 Weiter found.');
 
-            // TEVIS can leave an overlay behind.
+            // Start watching for the URL change BEFORE
+            // clicking the button.
+            const urlChange = page.waitForURL(
+              url => url.pathname.includes('/suggest'),
+              {
+                timeout: 30000,
+                waitUntil: 'domcontentloaded'
+              }
+            ).catch(() => null);
+
             await weiter.click({
               force: true
             });
 
-            // ==========================================
-            // STEP 4
-            // ==========================================
+            // Wait for navigation if it happened.
+            await urlChange;
 
+            // Give TEVIS/AJAX time to finish.
             await page.waitForTimeout(3000);
+
+            // ==========================================
+            // VERIFY STEP 4
+            // ==========================================
 
             console.log('\n===== STEP 4 =====');
             console.log('URL:', page.url());
             console.log('TITLE:', await page.title());
 
             if (!page.url().includes('/suggest')) {
+              console.log(
+                '\nStep 4 navigation did not complete normally.'
+              );
+
+              console.log(
+                'Current URL:',
+                page.url()
+              );
+
+              console.log(
+                'Current page title:',
+                await page.title()
+              );
+
               throw new Error(
                 'Did not reach Step 4 /suggest page.'
               );
             }
 
-            const body = await page.locator('body').innerText();
+            // ==========================================
+            // STEP 4 BODY
+            // ==========================================
+
+            const body =
+              await page.locator('body').innerText();
 
             console.log('\n===== STEP 4 BODY =====');
-            console.log(body.substring(0, 12000));
-
-            // ==========================================
-            // INSPECT DATE/TIME DOM
-            // ==========================================
 
             console.log(
-              '\n===== DATE/TIME ELEMENTS ====='
+              body.substring(0, 12000)
             );
 
-            const elements = await page.locator(
-              'a, button, input, td, span, div'
-            ).evaluateAll(els =>
-              els.map(el => ({
-                tag: el.tagName,
-                text: (
-                  el.innerText ||
-                  el.value ||
-                  ''
-                ).trim().replace(/\s+/g, ' '),
-                id: el.id || '',
-                class:
-                  typeof el.className === 'string'
-                    ? el.className
-                    : '',
-                href:
-                  el.getAttribute('href') || '',
-                name:
-                  el.getAttribute('name') || '',
-                type:
-                  el.getAttribute('type') || '',
-                role:
-                  el.getAttribute('role') || ''
-              }))
-              .filter(x => {
-                if (!x.text) return false;
+            // ==========================================
+            // FIND ALL DATES IN 2026
+            // ==========================================
 
-                // Dates such as:
-                // Freitag, 02.10.2026
-                // Montag, 05.10.2026
-                const date =
-                  /\b\d{1,2}\.\d{1,2}\.\d{4}\b/.test(x.text);
+            const dates = [
+              ...new Set(
+                body.match(
+                  /\b\d{1,2}\.\d{1,2}\.2026\b/g
+                ) || []
+              )
+            ];
 
-                // Times such as:
-                // 10:20
-                const time =
-                  /\b\d{1,2}:\d{2}\b/.test(x.text);
-
-                return date || time;
-              })
+            console.log(
+              '\n===== ALL 2026 DATES FOUND ====='
             );
 
             console.log(
-              JSON.stringify(elements, null, 2)
+              dates.length
+                ? dates.join('\n')
+                : 'NONE'
             );
 
             // ==========================================
-            // FIND SEPTEMBER DATES
+            // FIND SEPTEMBER 2026 DATES
             // ==========================================
 
-            const septemberDates =
-              [...new Set(
+            const septemberDates = [
+              ...new Set(
                 body.match(
                   /\b\d{1,2}\.09\.2026\b/g
                 ) || []
-              )];
+              )
+            ];
 
             console.log(
               '\n===== SEPTEMBER 2026 DATES FOUND ====='
             );
 
+            if (septemberDates.length === 0) {
+              console.log('NONE');
+            } else {
+              console.log(
+                septemberDates.join('\n')
+              );
+            }
+
+            // ==========================================
+            // FIND TIMES
+            // ==========================================
+
+            const allTimes = [
+              ...new Set(
+                body.match(
+                  /\b\d{1,2}:\d{2}\b/g
+                ) || []
+              )
+            ];
+
             console.log(
-              septemberDates.length
-                ? septemberDates.join('\n')
+              '\n===== TIMES FOUND ====='
+            );
+
+            console.log(
+              allTimes.length
+                ? allTimes.join(', ')
                 : 'NONE'
             );
 
             // ==========================================
-            // FIND SEPTEMBER CONTEXT
+            // PRINT SEPTEMBER CONTEXT
             // ==========================================
-            //
-            // We print the surrounding text for every
-            // September date. This lets us see exactly
-            // how TEVIS represents its appointment slots.
-            //
 
             console.log(
               '\n===== SEPTEMBER CONTEXT ====='
@@ -267,7 +307,7 @@ jobs:
 
               const end = Math.min(
                 body.length,
-                index + 1200
+                index + 1500
               );
 
               console.log(
@@ -280,28 +320,60 @@ jobs:
             }
 
             // ==========================================
-            // FIND ALL TIMES
+            // INSPECT ELEMENTS CONTAINING SEPTEMBER
             // ==========================================
 
-            const allTimes =
-              [...new Set(
-                body.match(
-                  /\b\d{1,2}:\d{2}\b/g
-                ) || []
-              )];
-
             console.log(
-              '\n===== ALL TIMES FOUND ====='
+              '\n===== SEPTEMBER DOM ELEMENTS ====='
             );
 
+            const septemberElements =
+              await page.locator(
+                'a, button, input, td, span, div'
+              ).evaluateAll(els =>
+                els.map(el => ({
+                  tag: el.tagName,
+
+                  text: (
+                    el.innerText ||
+                    el.value ||
+                    ''
+                  ).trim().replace(/\s+/g, ' '),
+
+                  id: el.id || '',
+
+                  class:
+                    typeof el.className === 'string'
+                      ? el.className
+                      : '',
+
+                  href:
+                    el.getAttribute('href') || '',
+
+                  name:
+                    el.getAttribute('name') || '',
+
+                  type:
+                    el.getAttribute('type') || '',
+
+                  role:
+                    el.getAttribute('role') || ''
+                }))
+                .filter(x =>
+                  x.text.includes('.09.2026')
+                )
+              );
+
             console.log(
-              allTimes.length
-                ? allTimes.join(', ')
-                : 'NONE'
+              JSON.stringify(
+                septemberElements,
+                null,
+                2
+              )
             );
 
             // ==========================================
-            // SEPTEMBER RESULT
+            // RESULT
             // ==========================================
 
             console.log(
@@ -310,35 +382,27 @@ jobs:
 
             if (septemberDates.length > 0) {
               console.log(
-                '🚨 SEPTEMBER 2026 APPOINTMENT DATE FOUND'
+                '🚨 SEPTEMBER 2026 APPOINTMENT FOUND'
               );
 
               console.log(
-                'Dates:',
+                'September dates:',
                 septemberDates.join(', ')
               );
 
               console.log(
-                'Times found on Step 4:',
+                'Times detected:',
                 allTimes.join(', ')
               );
-
-              console.log(
-                '=========================================='
-              );
-
-              // Exit successfully.
-              // We are ONLY detecting here.
-              // Nothing is booked.
             } else {
               console.log(
                 'NO SEPTEMBER 2026 APPOINTMENT FOUND'
               );
-
-              console.log(
-                '=========================================='
-              );
             }
+
+            console.log(
+              '=========================================='
+            );
 
             // ==========================================
             // SCREENSHOT
