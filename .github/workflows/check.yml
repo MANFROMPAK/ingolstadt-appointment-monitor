@@ -4,17 +4,37 @@ on:
   workflow_dispatch:
 
   schedule:
-    - cron: "*/5 * * * *"
+    # ==========================================
+    # INGOLSTADT TIME: 02:00 - 09:55
+    # Every 5 minutes
+    # ==========================================
+    - cron: "*/5 2-9 * * *"
+      timezone: "Europe/Berlin"
+
+    # ==========================================
+    # INGOLSTADT TIME: 10:00
+    # ==========================================
+    - cron: "0 10 * * *"
+      timezone: "Europe/Berlin"
 
 jobs:
   check-appointments:
     runs-on: ubuntu-latest
 
     steps:
+
+      # ==========================================
+      # NODE
+      # ==========================================
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      # ==========================================
+      # PLAYWRIGHT
+      # ==========================================
 
       - name: Install Playwright
         run: |
@@ -22,78 +42,141 @@ jobs:
           npm install playwright
           npx playwright install --with-deps chromium
 
+      # ==========================================
+      # APPOINTMENT CHECK
+      # ==========================================
+
       - name: Check September appointments
         env:
           ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }}
         run: |
+
           cat > test.js <<'EOF'
+
           const { chromium } = require('playwright');
+
+          // ==========================================
+          // CONFIGURATION
+          // ==========================================
 
           const START_URL =
             'https://www.ingolstadt.de/tevisweb/select2?md=5';
 
+          // September
           const TARGET_MONTH = 9;
-          const TARGET_YEAR = new Date().getFullYear();
+
+          // Current year
+          const TARGET_YEAR =
+            new Date().getFullYear();
+
+
+          // ==========================================
+          // DISCORD ALERT
+          // ==========================================
 
           async function sendAlert(message) {
-            if (!process.env.ALERT_WEBHOOK) {
-              console.log('\nALERT_WEBHOOK is not configured.');
-              console.log('Alert that would have been sent:');
-              console.log(message);
-              return;
+
+            const webhook =
+              process.env.ALERT_WEBHOOK;
+
+            if (!webhook) {
+
+              throw new Error(
+                'ALERT_WEBHOOK GitHub secret is missing.'
+              );
+
             }
 
-            const response = await fetch(
-              process.env.ALERT_WEBHOOK,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  content: message
-                })
-              }
+            console.log(
+              '\n===== SENDING DISCORD ALERT ====='
             );
 
+            const response =
+              await fetch(
+                webhook,
+                {
+                  method: 'POST',
+
+                  headers: {
+                    'Content-Type':
+                      'application/json'
+                  },
+
+                  body: JSON.stringify({
+                    content: message
+                  })
+                }
+              );
+
             console.log(
-              'Discord alert response:',
+              'Discord response:',
               response.status
             );
 
             if (!response.ok) {
-              console.log(
-                await response.text()
+
+              const text =
+                await response.text();
+
+              throw new Error(
+                `Discord webhook failed: ${response.status} ${text}`
               );
+
             }
+
+            console.log(
+              'Discord alert sent successfully.'
+            );
+
           }
 
+
+          // ==========================================
+          // CLOSE TEVIS POPUP
+          // ==========================================
+
           async function closeTevisDialog(page) {
-            const dialog = page.locator('#TevisDialog');
+
+            const dialog =
+              page.locator('#TevisDialog');
 
             if (
-              !(await dialog.isVisible().catch(() => false))
+              !(await dialog.isVisible()
+                .catch(() => false))
             ) {
               return;
             }
 
-            console.log('TEVIS popup found.');
-
-            const inputs = dialog.locator(
-              'input[type="button"], input[type="submit"]'
+            console.log(
+              'TEVIS popup found.'
             );
 
-            for (let i = 0; i < await inputs.count(); i++) {
-              const input = inputs.nth(i);
+            const inputs =
+              dialog.locator(
+                'input[type="button"], input[type="submit"]'
+              );
+
+            for (
+              let i = 0;
+              i < await inputs.count();
+              i++
+            ) {
+
+              const input =
+                inputs.nth(i);
 
               const value =
-                await input.getAttribute('value');
+                await input.getAttribute(
+                  'value'
+                );
 
               if (
                 value &&
                 value.trim().toUpperCase() === 'OK' &&
-                await input.isVisible().catch(() => false)
+                await input.isVisible()
+                  .catch(() => false)
               ) {
+
                 await input.click({
                   force: true
                 });
@@ -103,22 +186,35 @@ jobs:
                   timeout: 10000
                 }).catch(() => {});
 
-                console.log('OK popup closed.');
+                console.log(
+                  'OK popup closed.'
+                );
+
                 return;
+
               }
+
             }
 
-            const okText = dialog.getByText(
-              'OK',
-              {
-                exact: true
-              }
-            ).last();
+
+            // ==========================================
+            // FALLBACK OK TEXT
+            // ==========================================
+
+            const okText =
+              dialog.getByText(
+                'OK',
+                {
+                  exact: true
+                }
+              ).last();
 
             if (
-              await okText.count() &&
-              await okText.isVisible().catch(() => false)
+              await okText.count() > 0 &&
+              await okText.isVisible()
+                .catch(() => false)
             ) {
+
               await okText.click({
                 force: true
               });
@@ -128,32 +224,45 @@ jobs:
                 timeout: 10000
               }).catch(() => {});
 
-              console.log('OK popup closed.');
+              console.log(
+                'OK popup closed.'
+              );
+
               return;
+
             }
 
             console.log(
               'Could not find normal OK button.'
             );
+
           }
 
-          async function main() {
-            const browser = await chromium.launch({
-              headless: true
-            });
 
-            const page = await browser.newPage({
-              viewport: {
-                width: 1280,
-                height: 1000
-              }
-            });
+          // ==========================================
+          // MAIN
+          // ==========================================
+
+          async function main() {
+
+            const browser =
+              await chromium.launch({
+                headless: true
+              });
+
+            const page =
+              await browser.newPage({
+                viewport: {
+                  width: 1280,
+                  height: 1000
+                }
+              });
 
             try {
 
-              // ==================================================
+              // ==========================================
               // STEP 2
-              // ==================================================
+              // ==========================================
 
               console.log(
                 '\n===== STEP 2 ====='
@@ -166,6 +275,11 @@ jobs:
                   timeout: 60000
                 }
               );
+
+
+              // ==========================================
+              // SELECT WOHNUNGSÄNDERUNG
+              // ==========================================
 
               const wohnung =
                 page.getByText(
@@ -182,13 +296,22 @@ jobs:
 
               await wohnung.click();
 
-              await page.waitForTimeout(1000);
+              await page.waitForTimeout(
+                1000
+              );
+
+
+              // ==========================================
+              // SELECT QUANTITY
+              // ==========================================
 
               await page.locator(
                 '#button-plus-246'
               ).click();
 
-              await page.waitForTimeout(500);
+              await page.waitForTimeout(
+                500
+              );
 
               console.log(
                 'Quantity:',
@@ -197,9 +320,10 @@ jobs:
                 ).inputValue()
               );
 
-              // ==================================================
+
+              // ==========================================
               // STEP 2 -> STEP 3
-              // ==================================================
+              // ==========================================
 
               console.log(
                 '\n===== STEP 2 -> STEP 3 ====='
@@ -211,20 +335,27 @@ jobs:
                 force: true
               });
 
-              await page.waitForTimeout(500);
+              await page.waitForTimeout(
+                500
+              );
 
-              await closeTevisDialog(page);
+              await closeTevisDialog(
+                page
+              );
 
-              await page.waitForTimeout(1500);
+              await page.waitForTimeout(
+                1500
+              );
 
               console.log(
                 'Current URL:',
                 page.url()
               );
 
-              // ==================================================
+
+              // ==========================================
               // STEP 3
-              // ==================================================
+              // ==========================================
 
               console.log(
                 '\n===== STEP 3 ====='
@@ -242,6 +373,7 @@ jobs:
                 i < await weiterButtons.count();
                 i++
               ) {
+
                 const candidate =
                   weiterButtons.nth(i);
 
@@ -249,39 +381,52 @@ jobs:
                   await candidate.isVisible()
                     .catch(() => false)
                 ) {
-                  weiter = candidate;
+
+                  weiter =
+                    candidate;
+
                   break;
+
                 }
+
               }
 
+
               if (!weiter) {
+
                 throw new Error(
                   'Step 3 Weiter button not found.'
                 );
+
               }
+
 
               console.log(
                 'Step 3 Weiter found.'
               );
 
-              // This is the same force click that
-              // worked in the successful test.
+
+              // ==========================================
+              // GO TO STEP 4
+              // ==========================================
+
               await weiter.click({
                 force: true
               });
 
-              // ==================================================
-              // STEP 4
-              // ==================================================
 
               console.log(
                 '\n===== WAITING FOR STEP 4 ====='
               );
 
-              await page.waitForTimeout(3000);
 
-              // TEVIS does not always behave like a normal
-              // browser navigation, so don't use waitForURL().
+              await page.waitForTimeout(
+                3000
+              );
+
+
+              // TEVIS navigation can be unusual.
+              // Don't use waitForURL().
               await page.waitForFunction(
                 () =>
                   window.location.pathname.includes(
@@ -296,7 +441,11 @@ jobs:
                 }
               ).catch(() => {});
 
-              await page.waitForTimeout(1000);
+
+              await page.waitForTimeout(
+                1000
+              );
+
 
               console.log(
                 'URL:',
@@ -308,119 +457,186 @@ jobs:
                 await page.title()
               );
 
+
+              // ==========================================
+              // VERIFY STEP 4
+              // ==========================================
+
               if (
-                !page.url().includes('/suggest')
+                !page.url().includes(
+                  '/suggest'
+                )
               ) {
+
                 await page.screenshot({
-                  path: 'failed-step4.png',
+                  path:
+                    'failed-step4.png',
                   fullPage: true
                 });
 
                 throw new Error(
                   'Did not reach Step 4 /suggest.'
                 );
+
               }
+
 
               console.log(
                 '\n===== STEP 4 REACHED ====='
               );
 
-              // ==================================================
+
+              // ==========================================
               // READ PAGE
-              // ==================================================
+              // ==========================================
 
               const body =
                 await page.locator(
                   'body'
                 ).innerText();
 
+
               console.log(
                 '\n===== STEP 4 BODY ====='
               );
 
               console.log(
-                body.substring(0, 12000)
+                body.substring(
+                  0,
+                  12000
+                )
               );
 
-              // ==================================================
-              // PARSE DATE SECTIONS
-              // ==================================================
+
+              // ==========================================
+              // PARSE DATES
+              // ==========================================
 
               console.log(
                 '\n===== PARSING APPOINTMENT DATES ====='
               );
 
+
               const lines =
                 body
                   .split(/\r?\n/)
-                  .map(line => line.trim())
+                  .map(
+                    line => line.trim()
+                  )
                   .filter(Boolean);
+
 
               const dateRegex =
                 /\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/;
 
+
               const timeRegex =
-                /\b([01]?\d|2[0-3]):[0-5]\d\b/;
+                /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/g;
+
 
               const dateSections = [];
 
               let currentDate = null;
 
-              for (const line of lines) {
+
+              for (
+                const line of lines
+              ) {
 
                 const dateMatch =
-                  line.match(dateRegex);
+                  line.match(
+                    dateRegex
+                  );
+
+
+                // ==========================================
+                // NEW DATE
+                // ==========================================
 
                 if (dateMatch) {
 
                   const day =
-                    Number(dateMatch[1]);
+                    Number(
+                      dateMatch[1]
+                    );
 
                   const month =
-                    Number(dateMatch[2]);
+                    Number(
+                      dateMatch[2]
+                    );
 
                   const year =
-                    Number(dateMatch[3]);
+                    Number(
+                      dateMatch[3]
+                    );
+
 
                   currentDate = {
+
                     day,
+
                     month,
+
                     year,
-                    dateText: line,
+
+                    dateText:
+                      line,
+
                     times: []
+
                   };
+
 
                   dateSections.push(
                     currentDate
                   );
 
+
                   continue;
+
                 }
 
+
+                // ==========================================
+                // TIMES
+                // ==========================================
+
                 if (
-                  currentDate &&
-                  timeRegex.test(line)
+                  currentDate
                 ) {
+
                   const matches =
                     line.match(
-                      /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/g
+                      timeRegex
                     );
 
+
                   if (matches) {
-                    for (const time of matches) {
+
+                    for (
+                      const time of matches
+                    ) {
+
                       if (
                         !currentDate.times.includes(
                           time
                         )
                       ) {
+
                         currentDate.times.push(
                           time
                         );
+
                       }
+
                     }
+
                   }
+
                 }
+
               }
+
 
               console.log(
                 JSON.stringify(
@@ -430,32 +646,55 @@ jobs:
                 )
               );
 
-              // ==================================================
+
+              // ==========================================
               // SEPTEMBER ONLY
-              // ==================================================
+              // ==========================================
 
               const september =
                 dateSections.filter(
                   date =>
-                    date.month === TARGET_MONTH &&
-                    date.times.length > 0
+                    date.month ===
+                      TARGET_MONTH &&
+
+                    date.year ===
+                      TARGET_YEAR &&
+
+                    date.times.length >
+                      0
                 );
+
 
               console.log(
                 '\n===== SEPTEMBER RESULTS ====='
               );
 
-              if (september.length === 0) {
+
+              // ==========================================
+              // NO APPOINTMENT
+              // ==========================================
+
+              if (
+                september.length === 0
+              ) {
 
                 console.log(
                   'No September appointment date found.'
                 );
 
-              } else {
+              }
+
+
+              // ==========================================
+              // APPOINTMENT FOUND
+              // ==========================================
+
+              else {
 
                 console.log(
-                  'SEPTEMBER APPOINTMENT FOUND!'
+                  '🚨 SEPTEMBER APPOINTMENT FOUND!'
                 );
+
 
                 console.log(
                   JSON.stringify(
@@ -465,80 +704,130 @@ jobs:
                   )
                 );
 
-                // ==================================================
-                // CREATE ALERT
-                // ==================================================
+
+                // ==========================================
+                // FORMAT ALERT
+                // ==========================================
 
                 const appointmentLines =
                   september.map(
                     appointment => {
 
                       const times =
-                        appointment.times.length
-                          ? appointment.times.join(
-                              ', '
-                            )
-                          : 'Time not detected';
+                        appointment.times.join(
+                          ', '
+                        );
 
                       return (
                         `${appointment.dateText} — ${times}`
                       );
+
                     }
                   );
+
+
+                const checkedTime =
+                  new Date().toLocaleString(
+                    'de-DE',
+                    {
+                      timeZone:
+                        'Europe/Berlin'
+                    }
+                  );
+
 
                 const message =
                   [
                     '🚨 **SEPTEMBER APPOINTMENT AVAILABLE**',
+
                     '',
-                    'Bürgeramt Ingolstadt',
-                    'Anliegen: Zuzug aus dem Ausland ohne Familie',
+
+                    '🏛️ **Bürgeramt Ingolstadt**',
+
+                    '📋 Anliegen: Zuzug aus dem Ausland ohne Familie',
+
                     '',
+
                     '**Available September appointments:**',
+
                     ...appointmentLines,
+
                     '',
-                    `Checked: ${new Date().toISOString()}`,
+
+                    `🕐 Checked: ${checkedTime}`,
+
                     '',
-                    page.url()
+
+                    `🔗 ${page.url()}`
                   ].join('\n');
 
+
                 console.log(
-                  '\n===== ALERT ====='
+                  '\n===== DISCORD ALERT ====='
                 );
+
 
                 console.log(
                   message
                 );
+
 
                 await sendAlert(
                   message
                 );
+
               }
 
-              // ==================================================
+
+              // ==========================================
               // SCREENSHOT
-              // ==================================================
+              // ==========================================
 
               await page.screenshot({
-                path: 'step4-times.png',
+                path:
+                  'step4-times.png',
                 fullPage: true
               });
+
 
               console.log(
                 '\n===== CHECK COMPLETE ====='
               );
 
+
             } finally {
+
               await browser.close();
+
             }
+
           }
 
-          main().catch(error => {
-            console.error(error);
-            process.exit(1);
-          });
+
+          // ==========================================
+          // START
+          // ==========================================
+
+          main().catch(
+            error => {
+
+              console.error(
+                error
+              );
+
+              process.exit(1);
+
+            }
+          );
+
           EOF
 
           node test.js
+
+
+      # ==========================================
+      # SAVE SCREENSHOT
+      # ==========================================
 
       - name: Save screenshot
         if: always()
