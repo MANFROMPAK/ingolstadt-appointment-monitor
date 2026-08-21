@@ -1,4 +1,4 @@
-name: Test Ingolstadt appointment
+name: Find Ingolstadt service
 
 on:
   workflow_dispatch:
@@ -18,14 +18,13 @@ jobs:
           npm install playwright
           npx playwright install --with-deps chromium
 
-      - name: Test TEVIS
+      - name: Find service
         run: |
           cat > test.js <<'EOF'
           const { chromium } = require('playwright');
 
           (async () => {
             const browser = await chromium.launch({headless: true});
-
             const page = await browser.newPage({
               viewport: { width: 1280, height: 1000 }
             });
@@ -35,59 +34,42 @@ jobs:
               { waitUntil: 'networkidle', timeout: 60000 }
             );
 
-            console.log('Opened TEVIS');
-
-            // Wohnungsänderung
             await page.getByText('Wohnungsänderung', {
               exact: true
             }).click();
 
             await page.waitForTimeout(1000);
 
-            // Zuzug aus dem Ausland ohne Familie
-            await page.getByText(
+            const target = page.getByText(
               'Zuzug aus dem Ausland ohne Familie',
               { exact: true }
-            ).click();
+            );
 
-            await page.waitForTimeout(1000);
-
-            // Print buttons so we can identify the correct Weiter button
-            const buttons = await page.locator('button, input[type="submit"], input[type="button"], a')
-              .evaluateAll(els => els.map(e => ({
-                text: (e.innerText || e.value || '').trim(),
-                type: e.tagName,
-                id: e.id,
-                name: e.getAttribute('name')
-              })));
-
-            console.log('Buttons/links:', JSON.stringify(buttons, null, 2));
-
-            await page.screenshot({
-              path: 'before-continue.png',
-              fullPage: true
-            });
-
-            // Look for Weiter
-            const weiter = page.getByText('Weiter', { exact: true }).last();
-
-            await weiter.waitFor({
+            await target.waitFor({
               state: 'visible',
               timeout: 15000
             });
 
-            await weiter.click();
+            console.log('TARGET FOUND');
 
-            console.log('✓ Clicked Weiter');
+            // Print the HTML around the target service
+            const html = await target.evaluate(el => {
+              let current = el;
+              let result = '';
 
-            await page.waitForLoadState('networkidle').catch(() => {});
-            await page.waitForTimeout(1500);
+              for (let i = 0; i < 6 && current; i++) {
+                result += '\\n--- LEVEL ' + i + ' ---\\n';
+                result += current.outerHTML.substring(0, 5000);
+                current = current.parentElement;
+              }
 
-            console.log('New URL:', page.url());
-            console.log('New title:', await page.title());
+              return result;
+            });
+
+            console.log(html);
 
             await page.screenshot({
-              path: 'appointment-page.png',
+              path: 'service.png',
               fullPage: true
             });
 
@@ -97,11 +79,9 @@ jobs:
 
           node test.js
 
-      - name: Save screenshots
+      - name: Save screenshot
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tevis-result
-          path: |
-            before-continue.png
-            appointment-page.png
+          name: tevis-service
+          path: service.png
