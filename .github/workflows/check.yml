@@ -25,6 +25,7 @@ jobs:
 
           (async () => {
             const browser = await chromium.launch({headless: true});
+
             const page = await browser.newPage({
               viewport: { width: 1280, height: 1000 }
             });
@@ -36,46 +37,57 @@ jobs:
 
             console.log('Opened TEVIS');
 
-            // Step 1: Wohnungsänderung
+            // Wohnungsänderung
             await page.getByText('Wohnungsänderung', {
               exact: true
             }).click();
 
-            console.log('✓ Wohnungsänderung selected');
+            await page.waitForTimeout(1000);
+
+            // Zuzug aus dem Ausland ohne Familie
+            await page.getByText(
+              'Zuzug aus dem Ausland ohne Familie',
+              { exact: true }
+            ).click();
 
             await page.waitForTimeout(1000);
 
-            // Step 2: Zuzug aus dem Ausland ohne Familie
-            const option = page.getByText(
-              'Zuzug aus dem Ausland ohne Familie',
-              { exact: true }
-            );
+            // Print buttons so we can identify the correct Weiter button
+            const buttons = await page.locator('button, input[type="submit"], input[type="button"], a')
+              .evaluateAll(els => els.map(e => ({
+                text: (e.innerText || e.value || '').trim(),
+                type: e.tagName,
+                id: e.id,
+                name: e.getAttribute('name')
+              })));
 
-            await option.waitFor({
+            console.log('Buttons/links:', JSON.stringify(buttons, null, 2));
+
+            await page.screenshot({
+              path: 'before-continue.png',
+              fullPage: true
+            });
+
+            // Look for Weiter
+            const weiter = page.getByText('Weiter', { exact: true }).last();
+
+            await weiter.waitFor({
               state: 'visible',
               timeout: 15000
             });
 
-            await option.click();
+            await weiter.click();
 
-            console.log('✓ Zuzug aus dem Ausland ohne Familie selected');
+            console.log('✓ Clicked Weiter');
 
-            await page.waitForTimeout(1000);
+            await page.waitForLoadState('networkidle').catch(() => {});
+            await page.waitForTimeout(1500);
 
-            // Find the quantity input associated with the selected service.
-            const inputs = await page.locator('input').evaluateAll(
-              els => els.map(e => ({
-                type: e.type,
-                value: e.value,
-                name: e.name,
-                id: e.id
-              }))
-            );
-
-            console.log('Inputs:', JSON.stringify(inputs, null, 2));
+            console.log('New URL:', page.url());
+            console.log('New title:', await page.title());
 
             await page.screenshot({
-              path: 'step2.png',
+              path: 'appointment-page.png',
               fullPage: true
             });
 
@@ -85,9 +97,11 @@ jobs:
 
           node test.js
 
-      - name: Save screenshot
+      - name: Save screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tevis-step2
-          path: step2.png
+          name: tevis-result
+          path: |
+            before-continue.png
+            appointment-page.png
