@@ -2,18 +2,23 @@ name: September appointment monitor
 
 on:
   workflow_dispatch:
+    inputs:
+      test_discord:
+        description: "Send a Discord test message instead of checking appointments"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
   schedule:
-    # ==========================================
-    # INGOLSTADT TIME: 02:00 - 09:55
-    # Every 5 minutes
-    # ==========================================
+    # Every 5 minutes from 02:00 through 10:00
+    # using Ingolstadt/Germany local time.
     - cron: "*/5 2-9 * * *"
       timezone: "Europe/Berlin"
 
-    # ==========================================
-    # INGOLSTADT TIME: 10:00
-    # ==========================================
+    # 10:00 is included separately.
     - cron: "0 10 * * *"
       timezone: "Europe/Berlin"
 
@@ -22,19 +27,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # ==========================================
-      # NODE
-      # ==========================================
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      # ==========================================
-      # PLAYWRIGHT
-      # ==========================================
 
       - name: Install Playwright
         run: |
@@ -42,71 +38,45 @@ jobs:
           npm install playwright
           npx playwright install --with-deps chromium
 
-      # ==========================================
-      # APPOINTMENT CHECK
-      # ==========================================
-
-      - name: Check September appointments
+      - name: Check appointments / Discord test
         env:
           ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }}
+          TEST_DISCORD: ${{ inputs.test_discord || 'false' }}
         run: |
-
           cat > test.js <<'EOF'
-
           const { chromium } = require('playwright');
-
-          // ==========================================
-          // CONFIGURATION
-          // ==========================================
 
           const START_URL =
             'https://www.ingolstadt.de/tevisweb/select2?md=5';
 
-          // September
           const TARGET_MONTH = 9;
+          const TARGET_YEAR = new Date().getFullYear();
 
-          // Current year
-          const TARGET_YEAR =
-            new Date().getFullYear();
+          // =========================================================
+          // DISCORD
+          // =========================================================
 
-
-          // ==========================================
-          // DISCORD ALERT
-          // ==========================================
-
-          async function sendAlert(message) {
-
-            const webhook =
-              process.env.ALERT_WEBHOOK;
+          async function sendDiscord(message) {
+            const webhook = process.env.ALERT_WEBHOOK;
 
             if (!webhook) {
-
               throw new Error(
-                'ALERT_WEBHOOK GitHub secret is missing.'
+                'ALERT_WEBHOOK secret is missing.'
               );
-
             }
 
-            console.log(
-              '\n===== SENDING DISCORD ALERT ====='
+            const response = await fetch(
+              webhook,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  content: message
+                })
+              }
             );
-
-            const response =
-              await fetch(
-                webhook,
-                {
-                  method: 'POST',
-
-                  headers: {
-                    'Content-Type':
-                      'application/json'
-                  },
-
-                  body: JSON.stringify({
-                    content: message
-                  })
-                }
-              );
 
             console.log(
               'Discord response:',
@@ -114,35 +84,43 @@ jobs:
             );
 
             if (!response.ok) {
-
-              const text =
-                await response.text();
+              const text = await response.text();
 
               throw new Error(
                 `Discord webhook failed: ${response.status} ${text}`
               );
-
             }
 
             console.log(
               'Discord alert sent successfully.'
             );
-
           }
 
+          // =========================================================
+          // SHOW GERMANY TIME
+          // =========================================================
 
-          // ==========================================
+          function getBerlinTime() {
+            return new Intl.DateTimeFormat(
+              'de-DE',
+              {
+                timeZone: 'Europe/Berlin',
+                dateStyle: 'full',
+                timeStyle: 'medium'
+              }
+            ).format(new Date());
+          }
+
+          // =========================================================
           // CLOSE TEVIS POPUP
-          // ==========================================
+          // =========================================================
 
           async function closeTevisDialog(page) {
-
             const dialog =
               page.locator('#TevisDialog');
 
             if (
-              !(await dialog.isVisible()
-                .catch(() => false))
+              !(await dialog.isVisible().catch(() => false))
             ) {
               return;
             }
@@ -161,14 +139,11 @@ jobs:
               i < await inputs.count();
               i++
             ) {
-
               const input =
                 inputs.nth(i);
 
               const value =
-                await input.getAttribute(
-                  'value'
-                );
+                await input.getAttribute('value');
 
               if (
                 value &&
@@ -176,7 +151,6 @@ jobs:
                 await input.isVisible()
                   .catch(() => false)
               ) {
-
                 await input.click({
                   force: true
                 });
@@ -191,15 +165,8 @@ jobs:
                 );
 
                 return;
-
               }
-
             }
-
-
-            // ==========================================
-            // FALLBACK OK TEXT
-            // ==========================================
 
             const okText =
               dialog.getByText(
@@ -210,11 +177,10 @@ jobs:
               ).last();
 
             if (
-              await okText.count() > 0 &&
+              await okText.count() &&
               await okText.isVisible()
                 .catch(() => false)
             ) {
-
               await okText.click({
                 force: true
               });
@@ -229,21 +195,69 @@ jobs:
               );
 
               return;
-
             }
 
             console.log(
               'Could not find normal OK button.'
             );
-
           }
 
+          // =========================================================
+          // DISCORD TEST
+          // =========================================================
 
-          // ==========================================
+          async function discordTest() {
+            console.log(
+              '\n===== DISCORD TEST ====='
+            );
+
+            console.log(
+              'Sending test message...'
+            );
+
+            await sendDiscord(
+              [
+                '✅ **Ingolstadt appointment monitor test**',
+                '',
+                'Discord alerts are working.',
+                '',
+                `Germany time: ${getBerlinTime()}`
+              ].join('\n')
+            );
+
+            console.log(
+              '===== DISCORD TEST PASSED ====='
+            );
+          }
+
+          // =========================================================
           // MAIN
-          // ==========================================
+          // =========================================================
 
           async function main() {
+
+            console.log(
+              '\n🇩🇪 Germany / Ingolstadt time:'
+            );
+
+            console.log(
+              getBerlinTime()
+            );
+
+            // -------------------------------------------------------
+            // MANUAL DISCORD TEST
+            // -------------------------------------------------------
+
+            if (
+              process.env.TEST_DISCORD === 'true'
+            ) {
+              await discordTest();
+              return;
+            }
+
+            // -------------------------------------------------------
+            // BROWSER
+            // -------------------------------------------------------
 
             const browser =
               await chromium.launch({
@@ -260,9 +274,9 @@ jobs:
 
             try {
 
-              // ==========================================
+              // =====================================================
               // STEP 2
-              // ==========================================
+              // =====================================================
 
               console.log(
                 '\n===== STEP 2 ====='
@@ -275,11 +289,6 @@ jobs:
                   timeout: 60000
                 }
               );
-
-
-              // ==========================================
-              // SELECT WOHNUNGSÄNDERUNG
-              // ==========================================
 
               const wohnung =
                 page.getByText(
@@ -300,11 +309,6 @@ jobs:
                 1000
               );
 
-
-              // ==========================================
-              // SELECT QUANTITY
-              // ==========================================
-
               await page.locator(
                 '#button-plus-246'
               ).click();
@@ -320,10 +324,9 @@ jobs:
                 ).inputValue()
               );
 
-
-              // ==========================================
+              // =====================================================
               // STEP 2 -> STEP 3
-              // ==========================================
+              // =====================================================
 
               console.log(
                 '\n===== STEP 2 -> STEP 3 ====='
@@ -352,10 +355,9 @@ jobs:
                 page.url()
               );
 
-
-              // ==========================================
+              // =====================================================
               // STEP 3
-              // ==========================================
+              // =====================================================
 
               console.log(
                 '\n===== STEP 3 ====='
@@ -373,60 +375,45 @@ jobs:
                 i < await weiterButtons.count();
                 i++
               ) {
-
                 const candidate =
                   weiterButtons.nth(i);
 
                 if (
-                  await candidate.isVisible()
+                  await candidate
+                    .isVisible()
                     .catch(() => false)
                 ) {
-
-                  weiter =
-                    candidate;
-
+                  weiter = candidate;
                   break;
-
                 }
-
               }
 
-
               if (!weiter) {
-
                 throw new Error(
                   'Step 3 Weiter button not found.'
                 );
-
               }
-
 
               console.log(
                 'Step 3 Weiter found.'
               );
 
-
-              // ==========================================
-              // GO TO STEP 4
-              // ==========================================
-
               await weiter.click({
                 force: true
               });
 
+              // =====================================================
+              // STEP 4
+              // =====================================================
 
               console.log(
                 '\n===== WAITING FOR STEP 4 ====='
               );
 
-
               await page.waitForTimeout(
                 3000
               );
 
-
-              // TEVIS navigation can be unusual.
-              // Don't use waitForURL().
               await page.waitForFunction(
                 () =>
                   window.location.pathname.includes(
@@ -441,11 +428,9 @@ jobs:
                 }
               ).catch(() => {});
 
-
               await page.waitForTimeout(
                 1000
               );
-
 
               console.log(
                 'URL:',
@@ -457,44 +442,33 @@ jobs:
                 await page.title()
               );
 
-
-              // ==========================================
-              // VERIFY STEP 4
-              // ==========================================
-
               if (
                 !page.url().includes(
                   '/suggest'
                 )
               ) {
-
                 await page.screenshot({
-                  path:
-                    'failed-step4.png',
+                  path: 'failed-step4.png',
                   fullPage: true
                 });
 
                 throw new Error(
                   'Did not reach Step 4 /suggest.'
                 );
-
               }
-
 
               console.log(
                 '\n===== STEP 4 REACHED ====='
               );
 
-
-              // ==========================================
+              // =====================================================
               // READ PAGE
-              // ==========================================
+              // =====================================================
 
               const body =
                 await page.locator(
                   'body'
                 ).innerText();
-
 
               console.log(
                 '\n===== STEP 4 BODY ====='
@@ -507,15 +481,13 @@ jobs:
                 )
               );
 
-
-              // ==========================================
+              // =====================================================
               // PARSE DATES
-              // ==========================================
+              // =====================================================
 
               console.log(
                 '\n===== PARSING APPOINTMENT DATES ====='
               );
-
 
               const lines =
                 body
@@ -525,33 +497,22 @@ jobs:
                   )
                   .filter(Boolean);
 
-
               const dateRegex =
                 /\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/;
 
-
               const timeRegex =
-                /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/g;
-
+                /\b([01]?\d|2[0-3]):[0-5]\d\b/;
 
               const dateSections = [];
 
               let currentDate = null;
 
-
-              for (
-                const line of lines
-              ) {
+              for (const line of lines) {
 
                 const dateMatch =
                   line.match(
                     dateRegex
                   );
-
-
-                // ==========================================
-                // NEW DATE
-                // ==========================================
 
                 if (dateMatch) {
 
@@ -570,46 +531,30 @@ jobs:
                       dateMatch[3]
                     );
 
-
                   currentDate = {
-
                     day,
-
                     month,
-
                     year,
-
-                    dateText:
-                      line,
-
+                    dateText: line,
                     times: []
-
                   };
-
 
                   dateSections.push(
                     currentDate
                   );
 
-
                   continue;
-
                 }
 
-
-                // ==========================================
-                // TIMES
-                // ==========================================
-
                 if (
-                  currentDate
+                  currentDate &&
+                  timeRegex.test(line)
                 ) {
 
                   const matches =
                     line.match(
-                      timeRegex
+                      /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/g
                     );
-
 
                   if (matches) {
 
@@ -622,21 +567,14 @@ jobs:
                           time
                         )
                       ) {
-
                         currentDate.times.push(
                           time
                         );
-
                       }
-
                     }
-
                   }
-
                 }
-
               }
-
 
               console.log(
                 JSON.stringify(
@@ -646,33 +584,21 @@ jobs:
                 )
               );
 
-
-              // ==========================================
+              // =====================================================
               // SEPTEMBER ONLY
-              // ==========================================
+              // =====================================================
 
               const september =
                 dateSections.filter(
                   date =>
-                    date.month ===
-                      TARGET_MONTH &&
-
-                    date.year ===
-                      TARGET_YEAR &&
-
-                    date.times.length >
-                      0
+                    date.month === TARGET_MONTH &&
+                    date.year === TARGET_YEAR &&
+                    date.times.length > 0
                 );
-
 
               console.log(
                 '\n===== SEPTEMBER RESULTS ====='
               );
-
-
-              // ==========================================
-              // NO APPOINTMENT
-              // ==========================================
 
               if (
                 september.length === 0
@@ -682,19 +608,11 @@ jobs:
                   'No September appointment date found.'
                 );
 
-              }
-
-
-              // ==========================================
-              // APPOINTMENT FOUND
-              // ==========================================
-
-              else {
+              } else {
 
                 console.log(
                   '🚨 SEPTEMBER APPOINTMENT FOUND!'
                 );
-
 
                 console.log(
                   JSON.stringify(
@@ -704,10 +622,9 @@ jobs:
                   )
                 );
 
-
-                // ==========================================
-                // FORMAT ALERT
-                // ==========================================
+                // =================================================
+                // BUILD DISCORD MESSAGE
+                // =================================================
 
                 const appointmentLines =
                   september.map(
@@ -719,115 +636,62 @@ jobs:
                         );
 
                       return (
-                        `${appointment.dateText} — ${times}`
+                        `📅 ${appointment.dateText}\n` +
+                        `⏰ ${times}`
                       );
-
                     }
                   );
-
-
-                const checkedTime =
-                  new Date().toLocaleString(
-                    'de-DE',
-                    {
-                      timeZone:
-                        'Europe/Berlin'
-                    }
-                  );
-
 
                 const message =
                   [
                     '🚨 **SEPTEMBER APPOINTMENT AVAILABLE**',
-
                     '',
-
-                    '🏛️ **Bürgeramt Ingolstadt**',
-
-                    '📋 Anliegen: Zuzug aus dem Ausland ohne Familie',
-
+                    '🏛️ Bürgeramt Ingolstadt',
+                    '📌 Anliegen: Zuzug aus dem Ausland ohne Familie',
                     '',
-
                     '**Available September appointments:**',
-
+                    '',
                     ...appointmentLines,
-
                     '',
-
-                    `🕐 Checked: ${checkedTime}`,
-
+                    `🇩🇪 Checked: ${getBerlinTime()}`,
                     '',
-
                     `🔗 ${page.url()}`
                   ].join('\n');
 
-
                 console.log(
-                  '\n===== DISCORD ALERT ====='
+                  '\n===== SENDING DISCORD ALERT ====='
                 );
 
-
-                console.log(
+                await sendDiscord(
                   message
                 );
-
-
-                await sendAlert(
-                  message
-                );
-
               }
 
-
-              // ==========================================
+              // =====================================================
               // SCREENSHOT
-              // ==========================================
+              // =====================================================
 
               await page.screenshot({
-                path:
-                  'step4-times.png',
+                path: 'step4-times.png',
                 fullPage: true
               });
-
 
               console.log(
                 '\n===== CHECK COMPLETE ====='
               );
 
-
             } finally {
-
               await browser.close();
-
             }
-
           }
 
-
-          // ==========================================
-          // START
-          // ==========================================
-
-          main().catch(
-            error => {
-
-              console.error(
-                error
-              );
-
-              process.exit(1);
-
-            }
-          );
-
+          main().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
           EOF
 
           node test.js
-
-
-      # ==========================================
-      # SAVE SCREENSHOT
-      # ==========================================
 
       - name: Save screenshot
         if: always()
