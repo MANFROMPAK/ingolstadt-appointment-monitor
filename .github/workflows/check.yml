@@ -1,4 +1,4 @@
-name: Inspect appointment step
+name: Inspect appointment times
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ jobs:
           npm install playwright
           npx playwright install --with-deps chromium
 
-      - name: Inspect appointment step
+      - name: Inspect appointment times
         run: |
           cat > test.js <<'EOF'
           const { chromium } = require('playwright');
@@ -35,9 +35,9 @@ jobs:
               }
             });
 
-            // =========================
-            // STEP 2
-            // =========================
+            // ==========================================
+            // STEP 1 - OPEN TEVIS
+            // ==========================================
 
             await page.goto(
               'https://www.ingolstadt.de/tevisweb/select2?md=5',
@@ -47,7 +47,10 @@ jobs:
               }
             );
 
-            // This was already working — keep it.
+            // ==========================================
+            // STEP 2 - SELECT ANLIEGEN
+            // ==========================================
+
             await page.getByText('Wohnungsänderung', {
               exact: true
             }).click();
@@ -63,123 +66,198 @@ jobs:
               await page.locator('#input-246').inputValue()
             );
 
-            // =========================
-            // CLICK STEP 2 WEITER
-            // =========================
-
-            const navigation = page.waitForNavigation({
-              waitUntil: 'networkidle',
-              timeout: 15000
-            }).catch(() => null);
+            // ==========================================
+            // CLICK WEITER
+            // ==========================================
 
             await page.locator('#WeiterButton').click();
 
-            // =========================
-            // CLOSE INFORMATION POPUP
-            // =========================
+            // ==========================================
+            // CLOSE THE INFORMATION POPUP
+            // ==========================================
 
             const okButton = page.getByRole('button', {
               name: 'OK',
               exact: true
             });
 
-            await okButton.waitFor({
-              state: 'visible',
-              timeout: 10000
-            });
+            if (await okButton.isVisible().catch(() => false)) {
+              console.log('OK popup found.');
+              await okButton.click();
+              console.log('OK popup closed.');
+            }
 
-            console.log('OK popup found.');
+            // Wait for Step 3
+            await page.waitForURL(
+              /\/location/,
+              {
+                timeout: 30000
+              }
+            );
 
-            await okButton.click();
+            await page.waitForTimeout(2000);
 
-            console.log('OK popup closed.');
+            // ==========================================
+            // STEP 3 - LOCATION
+            // ==========================================
 
-            await navigation;
-
-            await page.waitForTimeout(3000);
-
-            // =========================
-            // STEP 3
-            // =========================
-
-            console.log('\\n===== STEP 3 =====');
+            console.log('\n===== STEP 3 =====');
             console.log('URL:', page.url());
             console.log('TITLE:', await page.title());
 
-            console.log('\\n===== STEP 3 BODY =====');
+            const step3Body = await page.locator('body').innerText();
 
-            const body = await page.locator('body').innerText();
+            console.log('\n===== STEP 3 BODY =====');
+            console.log(step3Body.substring(0, 5000));
 
-            console.log(
-              body.substring(0, 5000)
-            );
-
-            // =========================
-            // FIND VISIBLE WEITER
-            // =========================
+            // ==========================================
+            // STEP 3 - FIND VISIBLE WEITER
+            // ==========================================
 
             const weiter = page.locator(
               'input[type="submit"][value="Weiter"]:visible'
             );
 
             console.log(
-              '\\nVisible Weiter count:',
+              '\nVisible Weiter count:',
               await weiter.count()
             );
 
             if (await weiter.count() === 0) {
               throw new Error(
-                'Visible Weiter button was not found on Step 3'
+                'Could not find visible Weiter button on Step 3.'
               );
             }
 
-            console.log(
-              'Step 3 Weiter found.'
-            );
+            console.log('Step 3 Weiter found.');
 
-            // =========================
+            // ==========================================
             // CLICK STEP 3 WEITER
-            // =========================
-
-            const navigation3 = page.waitForNavigation({
-              waitUntil: 'networkidle',
-              timeout: 15000
-            }).catch(() => null);
+            // ==========================================
 
             await weiter.click();
 
-            await navigation3;
+            // Step 4 should be /suggest
+            await page.waitForURL(
+              /\/suggest/,
+              {
+                timeout: 30000
+              }
+            );
 
-            await page.waitForTimeout(3000);
+            await page.waitForTimeout(2000);
 
-            // =========================
-            // NEXT STEP
-            // =========================
+            // ==========================================
+            // STEP 4
+            // ==========================================
 
-            console.log('\\n===== AFTER STEP 3 =====');
+            console.log('\n===== STEP 4 =====');
             console.log('URL:', page.url());
             console.log('TITLE:', await page.title());
 
-            console.log('\\n===== NEXT STEP BODY =====');
+            const step4Body = await page.locator('body').innerText();
 
-            const nextBody = await page.locator('body').innerText();
+            console.log('\n===== STEP 4 BODY =====');
+            console.log(step4Body.substring(0, 8000));
 
-            console.log(
-              nextBody.substring(0, 5000)
+            // ==========================================
+            // FIND TIME ELEMENTS
+            // ==========================================
+
+            console.log('\n===== STEP 4 TIME ELEMENTS =====');
+
+            const timeElements = await page.locator(
+              'button, input, a, [role="button"]'
+            ).evaluateAll(els =>
+              els.map(el => ({
+                text: (
+                  el.innerText ||
+                  el.value ||
+                  ''
+                ).trim(),
+
+                tag: el.tagName,
+
+                id: el.id,
+
+                name: el.getAttribute('name'),
+
+                class: (
+                  typeof el.className === 'string'
+                    ? el.className
+                    : ''
+                ),
+
+                href: el.getAttribute('href'),
+
+                aria: el.getAttribute('aria-label'),
+
+                type: el.getAttribute('type')
+              })).filter(x =>
+                /^\d{1,2}:\d{2}$/.test(x.text)
+              )
             );
 
-            // =========================
+            console.log(
+              JSON.stringify(
+                timeElements,
+                null,
+                2
+              )
+            );
+
+            // ==========================================
+            // ALSO FIND ELEMENTS CONTAINING 10:20
+            // ==========================================
+
+            console.log('\n===== ELEMENTS CONTAINING 10:20 =====');
+
+            const tenTwenty = await page.locator(
+              'text=10:20'
+            ).evaluateAll(els =>
+              els.map(el => ({
+                tag: el.tagName,
+                text: (el.innerText || el.value || '').trim(),
+                id: el.id,
+                class: (
+                  typeof el.className === 'string'
+                    ? el.className
+                    : ''
+                ),
+                name: el.getAttribute('name'),
+                href: el.getAttribute('href'),
+                role: el.getAttribute('role'),
+                type: el.getAttribute('type')
+              }))
+            );
+
+            console.log(
+              JSON.stringify(
+                tenTwenty,
+                null,
+                2
+              )
+            );
+
+            // ==========================================
             // SCREENSHOT
-            // =========================
+            // ==========================================
 
             await page.screenshot({
-              path: 'after-location.png',
+              path: 'step4-times.png',
               fullPage: true
             });
 
+            console.log(
+              '\n===== INSPECTION COMPLETE ====='
+            );
+
             await browser.close();
 
-          })();
+          })().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
           EOF
 
           node test.js
@@ -188,5 +266,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: appointment-step
-          path: after-location.png
+          name: appointment-step4
+          path: step4-times.png
