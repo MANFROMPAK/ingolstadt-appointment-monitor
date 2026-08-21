@@ -79,11 +79,19 @@ jobs:
               headings.map(x => x.trim()).filter(Boolean).join('\\n')
             );
 
-            console.log('\\n===== BODY TEXT (first 5000 chars) =====');
+            console.log('\\n===== BUTTONS/LINKS ON STEP 3 =====');
 
-            const body = await page.locator('body').innerText();
+            const elements = await page.locator('button, input, a').evaluateAll(els =>
+            els.map(el => ({
+            text: (el.innerText || el.value || '').trim(),
+            type: el.tagName,
+            id: el.id,
+            name: el.getAttribute('name'),
+            aria: el.getAttribute('aria-label')
+            })).filter(x => x.text || x.id || x.aria)
+          );
 
-            console.log(body.substring(0, 5000));
+            console.log(JSON.stringify(elements, null, 2));
 
             await page.screenshot({
               path: 'after-weiter.png',
