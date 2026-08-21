@@ -36,7 +36,7 @@ jobs:
             });
 
             // ==========================================
-            // STEP 2 - OPEN
+            // STEP 2
             // ==========================================
 
             await page.goto(
@@ -46,10 +46,6 @@ jobs:
                 timeout: 60000
               }
             );
-
-            // ==========================================
-            // SELECT ANLIEGEN
-            // ==========================================
 
             await page.getByText('Wohnungsänderung', {
               exact: true
@@ -67,42 +63,81 @@ jobs:
             );
 
             // ==========================================
-            // CLICK WEITER ON STEP 2
+            // CLICK STEP 2 WEITER
             // ==========================================
 
             await page.locator('#WeiterButton').click();
 
             // ==========================================
-            // CLOSE INFORMATION POPUP
+            // CLOSE STEP 2 INFORMATION POPUP
             // ==========================================
 
-            const okButton = page.getByRole('button', {
-              name: 'OK',
-              exact: true
-            });
+            const dialog = page.locator('#TevisDialog');
 
-            if (await okButton.isVisible().catch(() => false)) {
+            if (await dialog.isVisible().catch(() => false)) {
               console.log('OK popup found.');
-              await okButton.click();
+
+              const ok = dialog.locator(
+                'button, input'
+              ).filter({
+                hasText: 'OK'
+              }).first();
+
+              if (await ok.count() > 0 &&
+                  await ok.isVisible().catch(() => false)) {
+                await ok.click();
+              } else {
+                const okInput = dialog.locator(
+                  'input[type="button"], input[type="submit"]'
+                ).filter({
+                  hasValue: 'OK'
+                }).first();
+
+                if (await okInput.count() > 0) {
+                  await okInput.click();
+                } else {
+                  // Last resort: click the visible OK text
+                  await dialog.getByText('OK', {
+                    exact: true
+                  }).click();
+                }
+              }
+
+              // Wait for popup to disappear
+              await dialog.waitFor({
+                state: 'hidden',
+                timeout: 10000
+              }).catch(() => {});
+
               console.log('OK popup closed.');
             }
 
             // ==========================================
-            // WAIT UNTIL STEP 3 IS ACTUALLY THERE
+            // MAKE SURE POPUP IS GONE
+            // ==========================================
+
+            if (await dialog.isVisible().catch(() => false)) {
+              console.log(
+                'Popup still visible - pressing Escape.'
+              );
+
+              await page.keyboard.press('Escape');
+
+              await page.waitForTimeout(500);
+            }
+
+            // ==========================================
+            // WAIT FOR STEP 3
             // ==========================================
 
             await page.locator(
-              'input[type="submit"][value="Weiter"]'
+              '#WeiterButton'
             ).waitFor({
               state: 'visible',
               timeout: 30000
             });
 
-            await page.waitForTimeout(1500);
-
-            // ==========================================
-            // STEP 3
-            // ==========================================
+            await page.waitForTimeout(1000);
 
             console.log('\n===== STEP 3 =====');
             console.log('URL:', page.url());
@@ -112,14 +147,16 @@ jobs:
               await page.locator('body').innerText();
 
             console.log('\n===== STEP 3 BODY =====');
-            console.log(step3Body.substring(0, 5000));
+            console.log(
+              step3Body.substring(0, 5000)
+            );
 
             // ==========================================
-            // FIND VISIBLE WEITER
+            // STEP 3 WEITER
             // ==========================================
 
             const weiter = page.locator(
-              'input[type="submit"][value="Weiter"]:visible'
+              '#WeiterButton:visible'
             );
 
             console.log(
@@ -129,33 +166,31 @@ jobs:
 
             if (await weiter.count() === 0) {
               throw new Error(
-                'Could not find visible Weiter button on Step 3.'
+                'Step 3 Weiter button not found.'
               );
             }
 
-            console.log('Step 3 Weiter found.');
+            console.log(
+              'Step 3 Weiter found.'
+            );
 
-            // ==========================================
-            // CLICK STEP 3 WEITER
-            // ==========================================
+            // Check that popup is really gone
+            console.log(
+              'Dialog visible:',
+              await dialog.isVisible().catch(() => false)
+            );
 
-            await weiter.click();
-
-            // ==========================================
-            // WAIT FOR STEP 4 CONTENT
-            // Do NOT use waitForURL here.
-            // ==========================================
-
-            await page.locator('body').waitFor({
-              state: 'visible',
-              timeout: 30000
+            // Click with force because TEVIS can leave
+            // an invisible overlay in the DOM.
+            await weiter.click({
+              force: true
             });
 
-            await page.waitForTimeout(3000);
+            // ==========================================
+            // WAIT FOR STEP 4
+            // ==========================================
 
-            // ==========================================
-            // STEP 4
-            // ==========================================
+            await page.waitForTimeout(3000);
 
             console.log('\n===== STEP 4 =====');
             console.log('URL:', page.url());
@@ -165,7 +200,9 @@ jobs:
               await page.locator('body').innerText();
 
             console.log('\n===== STEP 4 BODY =====');
-            console.log(step4Body.substring(0, 8000));
+            console.log(
+              step4Body.substring(0, 8000)
+            );
 
             // ==========================================
             // FIND TIME ELEMENTS
@@ -190,20 +227,26 @@ jobs:
 
                   id: el.id,
 
-                  name: el.getAttribute('name'),
+                  name:
+                    el.getAttribute('name'),
 
                   class:
                     typeof el.className === 'string'
                       ? el.className
                       : '',
 
-                  href: el.getAttribute('href'),
+                  href:
+                    el.getAttribute('href'),
 
-                  aria: el.getAttribute('aria-label'),
+                  aria:
+                    el.getAttribute('aria-label'),
 
-                  type: el.getAttribute('type')
+                  type:
+                    el.getAttribute('type')
                 })).filter(x =>
-                  /^\d{1,2}:\d{2}$/.test(x.text)
+                  /^\d{1,2}:\d{2}$/.test(
+                    x.text
+                  )
                 )
               );
 
@@ -216,7 +259,7 @@ jobs:
             );
 
             // ==========================================
-            // FIND 10:20 SPECIFICALLY
+            // FIND 10:20
             // ==========================================
 
             console.log(
@@ -243,13 +286,17 @@ jobs:
                       ? el.className
                       : '',
 
-                  name: el.getAttribute('name'),
+                  name:
+                    el.getAttribute('name'),
 
-                  href: el.getAttribute('href'),
+                  href:
+                    el.getAttribute('href'),
 
-                  role: el.getAttribute('role'),
+                  role:
+                    el.getAttribute('role'),
 
-                  type: el.getAttribute('type')
+                  type:
+                    el.getAttribute('type')
                 }))
               );
 
