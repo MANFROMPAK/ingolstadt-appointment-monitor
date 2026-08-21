@@ -58,6 +58,8 @@ jobs:
 
             await page.locator('#WeiterButton').click();
 
+            await page.getByRole('button', { name: 'OK', exact: true }).click();
+
             await navigation;
 
             // Give TEVIS/AJAX time to finish
