@@ -1,4 +1,4 @@
-name: Test Ingolstadt appointment
+name: Inspect appointment step
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ jobs:
           npm install playwright
           npx playwright install --with-deps chromium
 
-      - name: Go to appointment page
+      - name: Inspect next step
         run: |
           cat > test.js <<'EOF'
           const { chromium } = require('playwright');
@@ -35,43 +35,56 @@ jobs:
               { waitUntil: 'networkidle', timeout: 60000 }
             );
 
-            console.log('Opened:', await page.title());
-
-            // Select Wohnungsänderung
             await page.getByText('Wohnungsänderung', {
               exact: true
             }).click();
 
             await page.waitForTimeout(1000);
 
-            // Select Zuzug aus dem Ausland ohne Familie
             await page.locator('#button-plus-246').click();
 
-            await page.waitForTimeout(1000);
+            await page.waitForTimeout(500);
 
-            // Confirm that the quantity is now 1
-            const quantity = await page.locator('#input-246').inputValue();
+            console.log(
+              'Quantity:',
+              await page.locator('#input-246').inputValue()
+            );
 
-            console.log('Quantity:', quantity);
+            // Listen for navigation
+            const navigation = page.waitForNavigation({
+              waitUntil: 'networkidle',
+              timeout: 10000
+            }).catch(() => null);
 
-            if (quantity !== '1') {
-              throw new Error(
-                `Expected quantity 1, but got ${quantity}`
-              );
-            }
-
-            // Continue
             await page.locator('#WeiterButton').click();
 
-            await page.waitForLoadState('networkidle').catch(() => {});
-            await page.waitForTimeout(1500);
+            await navigation;
 
-            console.log('SUCCESS - clicked Weiter');
+            // Give TEVIS/AJAX time to finish
+            await page.waitForTimeout(3000);
+
+            console.log('\\n===== AFTER CLICK =====');
             console.log('URL:', page.url());
             console.log('TITLE:', await page.title());
 
+            console.log('\\n===== HEADINGS =====');
+
+            const headings = await page.locator(
+              'h1, h2, h3, h4, h5'
+            ).allTextContents();
+
+            console.log(
+              headings.map(x => x.trim()).filter(Boolean).join('\\n')
+            );
+
+            console.log('\\n===== BODY TEXT (first 5000 chars) =====');
+
+            const body = await page.locator('body').innerText();
+
+            console.log(body.substring(0, 5000));
+
             await page.screenshot({
-              path: 'appointment-page.png',
+              path: 'after-weiter.png',
               fullPage: true
             });
 
@@ -85,5 +98,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: appointment-page
-          path: appointment-page.png
+          name: appointment-step
+          path: after-weiter.png
