@@ -115,6 +115,78 @@ jobs:
           }
 
           // =========================================================
+          // 🆕 ADDED — GET BERLIN HOUR / MINUTE
+          // =========================================================
+
+          function getBerlinHourMinute() {
+            const parts = new Intl.DateTimeFormat(
+              'en-GB',
+              {
+                timeZone: 'Europe/Berlin',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+              }
+            ).formatToParts(new Date());
+
+            return {
+              hour: Number(
+                parts.find(
+                  part => part.type === 'hour'
+                ).value
+              ),
+              minute: Number(
+                parts.find(
+                  part => part.type === 'minute'
+                ).value
+              )
+            };
+          }
+
+          // =========================================================
+          // 🆕 ADDED — START SEARCH NOTIFICATION
+          // =========================================================
+
+          async function sendSearchStarted() {
+            await sendDiscord(
+              [
+                '@everyone',
+                '🚀 **SEPTEMBER APPOINTMENT MONITOR STARTED**',
+                '',
+                '🇩🇪 The bot has started looking for September appointments.',
+                '',
+                `🕐 German time: ${getBerlinTime()}`,
+                '🏛️ Bürgeramt Ingolstadt',
+                '📌 Anliegen: Zuzug aus dem Ausland ohne Familie',
+                '',
+                '🔄 Automatic appointment checks will continue until 10:00 Germany time.'
+              ].join('\n')
+            );
+          }
+
+          // =========================================================
+          // 🆕 ADDED — STOP SEARCH NOTIFICATION
+          // =========================================================
+
+          async function sendSearchStopped() {
+            await sendDiscord(
+              [
+                '@everyone',
+                '🛑 **SEPTEMBER APPOINTMENT MONITOR STOPPED**',
+                '',
+                '🇩🇪 The appointment-search timeframe is now closed.',
+                '',
+                `🕐 German time: ${getBerlinTime()}`,
+                '🏛️ Bürgeramt Ingolstadt',
+                '📌 Anliegen: Zuzug aus dem Ausland ohne Familie',
+                '',
+                '✅ The final 10:00 appointment check has completed.',
+                '🔕 The bot has now stopped looking for appointments.'
+              ].join('\n')
+            );
+          }
+
+          // =========================================================
           // CLOSE TEVIS POPUP
           // =========================================================
 
@@ -244,6 +316,21 @@ jobs:
             );
 
             // =======================================================
+            // 🆕 ADDED — CHECK WHETHER THIS IS THE 02:00 RUN
+            // =======================================================
+
+            const berlinTime =
+              getBerlinHourMinute();
+
+            console.log(
+              `Berlin hour: ${berlinTime.hour}`
+            );
+
+            console.log(
+              `Berlin minute: ${berlinTime.minute}`
+            );
+
+            // =======================================================
             // MANUAL DISCORD TEST
             // =======================================================
 
@@ -252,6 +339,21 @@ jobs:
             ) {
               await discordTest();
               return;
+            }
+
+            // =======================================================
+            // 🆕 ADDED — 02:00 START NOTIFICATION
+            // =======================================================
+
+            if (
+              berlinTime.hour === 2 &&
+              berlinTime.minute === 0
+            ) {
+              console.log(
+                '\n===== SEARCH WINDOW STARTED ====='
+              );
+
+              await sendSearchStarted();
             }
 
             // =======================================================
@@ -663,6 +765,24 @@ jobs:
                 path: 'step4-times.png',
                 fullPage: true
               });
+
+              // =====================================================
+              // 🆕 ADDED — 10:00 STOP NOTIFICATION
+              // =====================================================
+
+              const finalBerlinTime =
+                getBerlinHourMinute();
+
+              if (
+                finalBerlinTime.hour === 10 &&
+                finalBerlinTime.minute === 0
+              ) {
+                console.log(
+                  '\n===== SEARCH WINDOW CLOSED ====='
+                );
+
+                await sendSearchStopped();
+              }
 
               console.log(
                 '\n===== CHECK COMPLETE ====='
